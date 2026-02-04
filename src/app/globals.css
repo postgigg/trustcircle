@@ -1,26 +1,120 @@
 @import "tailwindcss";
 
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
+  --tc-primary: #1B365D;
+  --tc-secondary: #4A90D9;
+  --tc-verified: #2ECC71;
+  --tc-warning: #F5A623;
+  --tc-danger: #E74C3C;
+  --tc-background: #FAFAFA;
+  --tc-surface: #FFFFFF;
+  --tc-text: #2C3E50;
+  --tc-text-secondary: #7F8C8D;
+  --tc-border: #E0E0E0;
+  --tc-gold: #D4AF37;
 }
 
 @theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
+  --color-primary: var(--tc-primary);
+  --color-secondary: var(--tc-secondary);
+  --color-verified: var(--tc-verified);
+  --color-warning: var(--tc-warning);
+  --color-danger: var(--tc-danger);
+  --color-background: var(--tc-background);
+  --color-surface: var(--tc-surface);
+  --color-text: var(--tc-text);
+  --color-text-secondary: var(--tc-text-secondary);
+  --color-border: var(--tc-border);
+  --color-gold: var(--tc-gold);
+  --font-sans: "Inter", system-ui, sans-serif;
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
+* {
+  box-sizing: border-box;
 }
 
 body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  background: var(--tc-background);
+  color: var(--tc-text);
+  font-family: "Inter", system-ui, sans-serif;
+  margin: 0;
+  padding: 0;
+  min-height: 100vh;
+  -webkit-font-smoothing: antialiased;
+}
+
+input:focus, button:focus {
+  outline: 2px solid var(--tc-secondary);
+  outline-offset: 2px;
+}
+
+@keyframes pulse-slow {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.7; }
+}
+
+@keyframes spin-slow {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
+.animate-pulse-slow {
+  animation: pulse-slow 3s ease-in-out infinite;
+}
+
+.animate-spin-slow {
+  animation: spin-slow 8s linear infinite;
+}
+
+@keyframes shake {
+  0%, 100% { transform: translateX(0); }
+  10%, 30%, 50%, 70%, 90% { transform: translateX(-4px); }
+  20%, 40%, 60%, 80% { transform: translateX(4px); }
+}
+
+.animate-shake {
+  animation: shake 0.5s ease-in-out;
+}
+
+/* Safe area padding for mobile devices */
+.safe-area-pb {
+  padding-bottom: env(safe-area-inset-bottom, 0);
+}
+
+.pt-safe {
+  padding-top: env(safe-area-inset-top, 0);
+}
+
+.pb-safe {
+  padding-bottom: env(safe-area-inset-bottom, 0);
+}
+
+/* Scrollbar styling */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--tc-border);
+  border-radius: 3px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--tc-text-secondary);
+}
+
+/* Touch action for mobile */
+button, a {
+  -webkit-tap-highlight-color: transparent;
+}
+
+/* Selection color */
+::selection {
+  background: var(--tc-secondary);
+  color: white;
 }

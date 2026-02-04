@@ -160,6 +160,7 @@ export class BadgeDetector {
 
   /**
    * Extract color signature for API verification
+   * Samples many pixels from center to get accurate color representation
    */
   extractColorSignature(video: HTMLVideoElement): number[] {
     const width = video.videoWidth;
@@ -169,28 +170,38 @@ export class BadgeDetector {
     this.canvas.height = height;
     this.ctx.drawImage(video, 0, 0);
 
-    // Sample center region
+    // Sample center region (where badge should be)
     const centerX = width / 2;
     const centerY = height / 2;
-    const radius = Math.min(width, height) * 0.2;
+    const sampleSize = Math.min(width, height) * 0.3; // 30% of smallest dimension
 
-    const imageData = this.ctx.getImageData(
-      Math.floor(centerX - radius),
-      Math.floor(centerY - radius),
-      Math.floor(radius * 2),
-      Math.floor(radius * 2)
-    );
+    const startX = Math.floor(centerX - sampleSize / 2);
+    const startY = Math.floor(centerY - sampleSize / 2);
+    const regionSize = Math.floor(sampleSize);
 
-    // Get color samples
-    const colors: number[] = [];
+    const imageData = this.ctx.getImageData(startX, startY, regionSize, regionSize);
     const data = imageData.data;
 
-    // Sample 20 pixels evenly distributed
-    const step = Math.floor(data.length / 80); // 20 pixels * 4 channels
-    for (let i = 0; i < data.length && colors.length < 60; i += step * 4) {
-      colors.push(data[i], data[i + 1], data[i + 2]);
+    // Sample 50 pixels evenly distributed across the region
+    const colors: number[] = [];
+    const pixelCount = data.length / 4;
+    const step = Math.max(1, Math.floor(pixelCount / 50));
+
+    for (let p = 0; p < pixelCount && colors.length < 150; p += step) {
+      const i = p * 4;
+      const r = data[i];
+      const g = data[i + 1];
+      const b = data[i + 2];
+
+      // Skip very dark pixels (likely shadows/black areas)
+      if (r + g + b < 30) continue;
+      // Skip very bright pixels (likely white/highlights)
+      if (r > 240 && g > 240 && b > 240) continue;
+
+      colors.push(r, g, b);
     }
 
+    console.log('Extracted colors sample:', colors.slice(0, 15));
     return colors;
   }
 

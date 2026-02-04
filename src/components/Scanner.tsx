@@ -129,6 +129,9 @@ export default function Scanner({ onResult, onCancel }: ScannerProps) {
     try {
       const colorSignature = detectorRef.current.extractColorSignature(videoRef.current);
 
+      // Debug: log captured colors
+      console.log('Color signature:', colorSignature.slice(0, 15));
+
       const response = await fetch('/api/verify/check', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -136,6 +139,7 @@ export default function Scanner({ onResult, onCancel }: ScannerProps) {
       });
 
       const result = await response.json();
+      console.log('Verify result:', result);
 
       if (result.verified) {
         stopCamera();

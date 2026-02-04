@@ -139,6 +139,8 @@ function checkDemoZonesMatch(colorSignature: number[]): typeof DEMO_ZONES[0] | n
     // Higher match ratio and lower distance = better score
     const score = matchRatio * (1 - avgDistance / 255);
 
+    console.log(`Zone ${demoZone.zone_name}: matchRatio=${matchRatio.toFixed(2)}, avgDist=${avgDistance.toFixed(0)}, score=${score.toFixed(3)}`);
+
     // Need at least 15% of pixels to match
     if (matchRatio >= 0.15 && score > bestScore) {
       bestScore = score;
@@ -146,6 +148,7 @@ function checkDemoZonesMatch(colorSignature: number[]): typeof DEMO_ZONES[0] | n
     }
   }
 
+  console.log('Best match:', bestZone?.zone_name || 'none', 'score:', bestScore.toFixed(3));
   return bestZone;
 }
 

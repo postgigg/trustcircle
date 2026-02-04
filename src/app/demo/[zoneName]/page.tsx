@@ -1,48 +1,76 @@
 'use client';
 
 import { useParams } from 'next/navigation';
-import DemoBadge from '@/components/DemoBadge';
+import { useEffect, useState } from 'react';
+import BadgeRenderer from '@/components/BadgeRenderer';
 import Link from 'next/link';
-
-// Demo zones that can be viewed without PWA installation
-const DEMO_ZONES: Record<string, {
-  displayName: string;
-  primaryColor: string;
-  secondaryColor: string;
-  pattern: 'wave' | 'pulse' | 'ripple' | 'spiral';
-}> = {
-  briarwood: {
-    displayName: 'Briarwood',
-    primaryColor: '#1B365D',
-    secondaryColor: '#4A90D9',
-    pattern: 'wave',
-  },
-  oakridge: {
-    displayName: 'Oak Ridge',
-    primaryColor: '#2D5016',
-    secondaryColor: '#6B8E23',
-    pattern: 'ripple',
-  },
-  riverside: {
-    displayName: 'Riverside',
-    primaryColor: '#1A4D5C',
-    secondaryColor: '#4ECDC4',
-    pattern: 'pulse',
-  },
-  maplewood: {
-    displayName: 'Maplewood',
-    primaryColor: '#8B4513',
-    secondaryColor: '#D2691E',
-    pattern: 'spiral',
-  },
-};
+import type { Zone } from '@/types';
 
 export default function DemoZonePage() {
   const params = useParams();
   const zoneName = params.zoneName as string;
-  const zone = DEMO_ZONES[zoneName.toLowerCase()];
+  const [zone, setZone] = useState<Zone | null>(null);
+  const [seed, setSeed] = useState<string>('');
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
-  if (!zone) {
+  // Fetch zone data from database
+  useEffect(() => {
+    const fetchZone = async () => {
+      try {
+        // Try demo-prefixed zone ID first, then raw name
+        const zoneId = `demo-${zoneName.toLowerCase()}`;
+        const res = await fetch(`/api/zone/${zoneId}/preview`);
+
+        if (res.ok) {
+          const data = await res.json();
+          setZone(data.zone);
+        } else {
+          setError(`Zone "${zoneName}" not found`);
+        }
+      } catch (err) {
+        console.error('Failed to fetch zone:', err);
+        setError('Failed to load zone');
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    fetchZone();
+  }, [zoneName]);
+
+  // Fetch real time-synced seed from API
+  useEffect(() => {
+    if (!zone) return;
+
+    const fetchSeed = async () => {
+      try {
+        const res = await fetch(`/api/badge/seed?zoneId=${zone.zone_id}`);
+        if (res.ok) {
+          const data = await res.json();
+          setSeed(data.seed);
+        }
+      } catch (err) {
+        console.error('Failed to fetch seed:', err);
+      }
+    };
+
+    fetchSeed();
+    // Refresh seed every 30 seconds (seeds change every minute)
+    const interval = setInterval(fetchSeed, 30000);
+    return () => clearInterval(interval);
+  }, [zone]);
+
+  if (loading) {
+    return (
+      <div className="min-h-screen min-h-[100dvh] bg-[#fafaf9] flex flex-col items-center justify-center">
+        <div className="w-8 h-8 border-2 border-neutral-300 border-t-neutral-900 rounded-full animate-spin" />
+        <p className="mt-4 text-sm text-neutral-500">Loading zone...</p>
+      </div>
+    );
+  }
+
+  if (error || !zone) {
     return (
       <div className="min-h-screen min-h-[100dvh] bg-[#fafaf9] flex flex-col">
         <header className="flex-shrink-0 border-b border-neutral-200 bg-[#fafaf9]/80 backdrop-blur-sm">
@@ -58,12 +86,9 @@ export default function DemoZonePage() {
 
         <div className="flex-1 flex items-center justify-center p-6">
           <div className="text-center">
-            <h1 className="text-2xl font-bold text-neutral-900 mb-2">Demo Not Found</h1>
+            <h1 className="text-2xl font-bold text-neutral-900 mb-2">Zone Not Found</h1>
             <p className="text-neutral-500 mb-6">
-              The demo zone &quot;{zoneName}&quot; doesn&apos;t exist.
-            </p>
-            <p className="text-sm text-neutral-400 mb-6">
-              Available demos: {Object.keys(DEMO_ZONES).join(', ')}
+              {error || `The zone "${zoneName}" doesn't exist in the database.`}
             </p>
             <Link
               href="/"
@@ -73,6 +98,16 @@ export default function DemoZonePage() {
             </Link>
           </div>
         </div>
+      </div>
+    );
+  }
+
+  // Show loading while seed is being fetched
+  if (!seed) {
+    return (
+      <div className="min-h-screen min-h-[100dvh] bg-[#fafaf9] flex flex-col items-center justify-center">
+        <div className="w-8 h-8 border-2 border-neutral-300 border-t-neutral-900 rounded-full animate-spin" />
+        <p className="mt-4 text-sm text-neutral-500">Loading badge...</p>
       </div>
     );
   }
@@ -88,9 +123,6 @@ export default function DemoZonePage() {
             </div>
             <span className="text-sm font-semibold text-neutral-900">TrustCircle</span>
           </Link>
-          <span className="text-xs text-neutral-400 bg-neutral-100 px-2 py-1 rounded-full">
-            Demo Mode
-          </span>
         </div>
       </header>
 
@@ -98,25 +130,25 @@ export default function DemoZonePage() {
       <div className="flex-1 flex flex-col items-center justify-center p-6">
         {/* Zone name */}
         <div className="text-center mb-6">
-          <h1 className="text-2xl font-bold text-neutral-900">{zone.displayName}</h1>
+          <h1 className="text-2xl font-bold text-neutral-900">{zone.zone_name}</h1>
           <p className="text-sm text-neutral-500 mt-1">Verified Resident Badge</p>
         </div>
 
-        {/* Badge display */}
+        {/* Badge display - uses REAL BadgeRenderer with time-synced seed */}
         <div className="relative mb-8">
           {/* Ambient glow */}
           <div
             className="absolute inset-0 -m-12 rounded-full opacity-30 blur-3xl"
             style={{
-              background: `radial-gradient(ellipse at center, ${zone.secondaryColor}50 0%, transparent 70%)`,
+              background: `radial-gradient(ellipse at center, ${zone.color_secondary}50 0%, transparent 70%)`,
             }}
           />
 
-          <DemoBadge
-            size={280}
-            pattern={zone.pattern}
-            primaryColor={zone.primaryColor}
-            secondaryColor={zone.secondaryColor}
+          <BadgeRenderer
+            zone={zone}
+            seed={seed}
+            status="active"
+            showTimestamp={true}
           />
         </div>
 
@@ -146,7 +178,7 @@ export default function DemoZonePage() {
           </Link>
 
           <p className="text-xs text-neutral-400 mt-4">
-            This is a demo badge for testing. Real badges are unique to each verified resident.
+            Badge animation is time-synced and cryptographically verified.
           </p>
         </div>
       </div>

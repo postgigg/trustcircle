@@ -13,15 +13,8 @@ export async function GET(
       return NextResponse.json({ error: 'Zone not found' }, { status: 404 });
     }
 
-    return NextResponse.json({
-      zone_id: zone.zone_id,
-      zone_name: zone.zone_name,
-      color_primary: zone.color_primary,
-      color_secondary: zone.color_secondary,
-      color_accent: zone.color_accent,
-      motion_pattern: zone.motion_pattern,
-      active_resident_count: zone.active_resident_count,
-    });
+    // Return full zone object for BadgeRenderer
+    return NextResponse.json({ zone });
   } catch (error) {
     console.error('Zone preview error:', error);
     return NextResponse.json({ error: 'Failed to fetch zone' }, { status: 500 });

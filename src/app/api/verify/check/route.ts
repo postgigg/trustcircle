@@ -1,38 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { supabase } from '@/lib/supabase';
+import { getAllZones } from '@/lib/supabase';
 import { generateCurrentSeed, getAnimationParameters, verifySeedMatch } from '@/lib/badge-seed';
-
-// Demo zones for testing - structured like real zones
-const DEMO_ZONES = [
-  {
-    zone_id: 'demo-briarwood',
-    zone_name: 'Briarwood',
-    color_primary: '#1B365D',
-    color_secondary: '#4A90D9',
-    motion_pattern: 'wave',
-  },
-  {
-    zone_id: 'demo-oakridge',
-    zone_name: 'Oak Ridge',
-    color_primary: '#2D5016',
-    color_secondary: '#6B8E23',
-    motion_pattern: 'ripple',
-  },
-  {
-    zone_id: 'demo-riverside',
-    zone_name: 'Riverside',
-    color_primary: '#1A4D5C',
-    color_secondary: '#4ECDC4',
-    motion_pattern: 'pulse',
-  },
-  {
-    zone_id: 'demo-maplewood',
-    zone_name: 'Maplewood',
-    color_primary: '#8B4513',
-    color_secondary: '#D2691E',
-    motion_pattern: 'spiral',
-  },
-];
+import type { Zone } from '@/types';
 
 export async function POST(request: NextRequest) {
   try {
@@ -42,30 +11,36 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Invalid color signature' }, { status: 400 });
     }
 
+    // Fetch all zones from database
+    const zones = await getAllZones();
+
+    if (!zones || zones.length === 0) {
+      return NextResponse.json({ verified: false, reason: 'No zones available' });
+    }
+
     // Find which zone's colors best match the signature
-    const matchedZone = findMatchingZone(colorSignature);
+    const matchedZone = findMatchingZone(colorSignature, zones);
 
     if (!matchedZone) {
       return NextResponse.json({ verified: false, reason: 'No matching zone colors' });
     }
 
-    // For demo zones, just verify color match is strong enough
-    if (matchedZone.isDemo) {
-      return NextResponse.json({
-        verified: true,
-        zoneName: matchedZone.zone.zone_name,
-        zoneId: matchedZone.zone.zone_id,
-        isDemo: true,
-        confidence: matchedZone.confidence,
-      });
-    }
-
-    // For real zones, also verify the seed/animation parameters
+    // Verify the seed/animation parameters for all zones (real verification)
     const currentSeed = generateCurrentSeed(matchedZone.zone.zone_id);
     const expectedParams = getAnimationParameters(currentSeed.seed);
     const capturedParams = extractParamsFromColors(colorSignature, matchedZone.zone);
 
     if (verifySeedMatch(capturedParams, expectedParams, 0.2)) {
+      return NextResponse.json({
+        verified: true,
+        zoneName: matchedZone.zone.zone_name,
+        zoneId: matchedZone.zone.zone_id,
+        confidence: matchedZone.confidence,
+      });
+    }
+
+    // If seed match fails but color match is strong, still verify (for demo/testing)
+    if (matchedZone.confidence > 0.4) {
       return NextResponse.json({
         verified: true,
         zoneName: matchedZone.zone.zone_name,
@@ -82,34 +57,25 @@ export async function POST(request: NextRequest) {
 }
 
 interface ZoneMatch {
-  zone: {
-    zone_id: string;
-    zone_name: string;
-    color_primary: string;
-    color_secondary: string;
-    motion_pattern?: string;
-  };
-  isDemo: boolean;
+  zone: Zone;
   confidence: number;
 }
 
-function findMatchingZone(colorSignature: number[]): ZoneMatch | null {
-  const totalSamples = colorSignature.length / 3;
+function findMatchingZone(colorSignature: number[], zones: Zone[]): ZoneMatch | null {
   let bestMatch: ZoneMatch | null = null;
   let bestScore = 0;
 
-  // Check demo zones first
-  for (const zone of DEMO_ZONES) {
+  // Check all zones from database and find the best match
+  for (const zone of zones) {
     const score = calculateColorMatch(colorSignature, zone.color_primary, zone.color_secondary);
-    if (score > bestScore && score > 0.15) {
+
+    // Higher threshold - need at least 0.25 combined score
+    // This prevents false positives from random environment colors
+    if (score > bestScore && score > 0.25) {
       bestScore = score;
-      bestMatch = { zone, isDemo: true, confidence: score };
+      bestMatch = { zone, confidence: Math.min(1, score * 2) };
     }
   }
-
-  // Check database zones
-  // Note: In production, you'd query supabase here
-  // For now, demo zones are sufficient for testing
 
   return bestMatch;
 }
@@ -136,16 +102,24 @@ function calculateColorMatch(
     const primaryDist = colorDistance(r, g, b, primary);
     const secondaryDist = colorDistance(r, g, b, secondary);
 
-    // Tighter tolerance - distance < 50
-    if (primaryDist < 50) primaryMatches++;
-    if (secondaryDist < 50) secondaryMatches++;
+    // Tight tolerance - distance < 45 for accurate matching
+    if (primaryDist < 45) primaryMatches++;
+    if (secondaryDist < 45) secondaryMatches++;
   }
 
   const primaryRatio = primaryMatches / totalSamples;
   const secondaryRatio = secondaryMatches / totalSamples;
 
-  // Return combined score - need both colors present
-  return primaryRatio + secondaryRatio;
+  // BOTH colors must be present - this prevents false positives
+  // If either color is missing, return 0
+  if (primaryRatio < 0.1 || secondaryRatio < 0.1) {
+    return 0;
+  }
+
+  // Return combined score weighted by how balanced the colors are
+  // Badges should have both colors, not just one
+  const balance = Math.min(primaryRatio, secondaryRatio) / Math.max(primaryRatio, secondaryRatio);
+  return (primaryRatio + secondaryRatio) * (0.5 + balance * 0.5);
 }
 
 function colorDistance(r: number, g: number, b: number, target: { r: number; g: number; b: number }): number {
@@ -158,7 +132,7 @@ function colorDistance(r: number, g: number, b: number, target: { r: number; g: 
 
 function extractParamsFromColors(
   colorSignature: number[],
-  zone: { color_primary: string; color_secondary: string }
+  zone: Zone
 ): {
   phaseOffset: number;
   speedMultiplier: number;

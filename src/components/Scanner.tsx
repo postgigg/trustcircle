@@ -11,7 +11,9 @@ export default function Scanner({ onResult, onCancel }: ScannerProps) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const streamRef = useRef<MediaStream | null>(null);
+  const trackRef = useRef<MediaStreamTrack | null>(null);
   const [isScanning, setIsScanning] = useState(false);
+  const [showTapHint, setShowTapHint] = useState(true);
   const [cameraError, setCameraError] = useState<'denied' | 'notfound' | 'notsecure' | 'error' | null>(null);
   const analysisRef = useRef<number>(0);
 
@@ -27,31 +29,15 @@ export default function Scanner({ onResult, onCancel }: ScannerProps) {
     try {
       const stream = await navigator.mediaDevices.getUserMedia({
         video: {
-          facingMode: 'environment',
-          width: { ideal: 1280 },
-          height: { ideal: 720 },
-          // @ts-expect-error - focusMode is valid but not in TS types
-          focusMode: 'continuous',
-          // @ts-expect-error - focusDistance for close-up scanning
-          focusDistance: 0.3,
+          facingMode: { exact: 'environment' },
+          width: { ideal: 1920 },
+          height: { ideal: 1080 },
         },
       });
 
-      // Try to enable continuous autofocus on the track
+      // Store track reference for tap-to-focus
       const videoTrack = stream.getVideoTracks()[0];
-      if (videoTrack) {
-        try {
-          const capabilities = videoTrack.getCapabilities?.() as MediaTrackCapabilities & { focusMode?: string[] };
-          if (capabilities?.focusMode?.includes('continuous')) {
-            await videoTrack.applyConstraints({
-              // @ts-expect-error - advanced focus constraints
-              advanced: [{ focusMode: 'continuous' }],
-            });
-          }
-        } catch {
-          // Autofocus not supported, continue anyway
-        }
-      }
+      trackRef.current = videoTrack;
 
       streamRef.current = stream;
 
@@ -164,6 +150,52 @@ export default function Scanner({ onResult, onCancel }: ScannerProps) {
     startCamera();
   };
 
+  // Tap to focus - triggers autofocus at tap point
+  const handleTapToFocus = async (e: React.TouchEvent | React.MouseEvent) => {
+    setShowTapHint(false);
+
+    if (!trackRef.current || !videoRef.current) return;
+
+    const video = videoRef.current;
+    const rect = video.getBoundingClientRect();
+
+    // Get tap coordinates as percentage of video
+    const clientX = 'touches' in e ? e.touches[0].clientX : e.clientX;
+    const clientY = 'touches' in e ? e.touches[0].clientY : e.clientY;
+    const x = (clientX - rect.left) / rect.width;
+    const y = (clientY - rect.top) / rect.height;
+
+    try {
+      // Try to set focus point (works on some devices)
+      const capabilities = trackRef.current.getCapabilities?.() as MediaTrackCapabilities & {
+        focusMode?: string[];
+        pointsOfInterest?: boolean;
+      };
+
+      const constraints: MediaTrackConstraints & {
+        advanced?: Array<{ focusMode?: string; pointsOfInterest?: Array<{x: number; y: number}> }>
+      } = {};
+
+      if (capabilities?.focusMode?.includes('single-shot')) {
+        constraints.advanced = [{ focusMode: 'single-shot' }];
+      } else if (capabilities?.focusMode?.includes('continuous')) {
+        constraints.advanced = [{ focusMode: 'continuous' }];
+      }
+
+      // Some browsers support pointsOfInterest for tap-to-focus
+      if (capabilities?.pointsOfInterest) {
+        constraints.advanced = constraints.advanced || [];
+        constraints.advanced.push({ pointsOfInterest: [{ x, y }] });
+      }
+
+      if (constraints.advanced) {
+        await trackRef.current.applyConstraints(constraints);
+      }
+    } catch {
+      // Focus not supported, that's ok
+    }
+  };
+
   // Show error screen if camera access failed
   if (cameraError) {
     return (
@@ -242,7 +274,7 @@ export default function Scanner({ onResult, onCancel }: ScannerProps) {
 
   return (
     <div className="fixed inset-0 bg-black flex flex-col">
-      <div className="relative flex-1">
+      <div className="relative flex-1" onClick={handleTapToFocus} onTouchStart={handleTapToFocus}>
         <video
           ref={videoRef}
           autoPlay
@@ -296,6 +328,15 @@ export default function Scanner({ onResult, onCancel }: ScannerProps) {
             <div className="bg-white/10 backdrop-blur-md rounded-full px-4 py-2 flex items-center gap-2">
               <div className="w-2 h-2 rounded-full bg-[#4A90D9] animate-pulse" />
               <span className="text-white text-sm font-medium">Scanning...</span>
+            </div>
+          </div>
+        )}
+
+        {/* Tap to focus hint */}
+        {showTapHint && isScanning && (
+          <div className="absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 mt-56 animate-pulse">
+            <div className="bg-black/60 backdrop-blur-sm rounded-full px-4 py-2">
+              <span className="text-white text-sm font-medium">Tap screen to focus</span>
             </div>
           </div>
         )}

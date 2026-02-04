@@ -47,31 +47,42 @@ export default function Scanner({ onResult, onCancel }: ScannerProps) {
   }, []);
 
   const checkCameraPermission = useCallback(async () => {
-    if ('permissions' in navigator) {
-      try {
-        const result = await navigator.permissions.query({ name: 'camera' as PermissionName });
-        setPermissionState(result.state as 'prompt' | 'denied' | 'granted');
+    // On mobile Safari and Chrome, just try to start camera directly
+    // This triggers the native browser permission prompt which is better UX
+    // Only show our custom dialog if permission was previously denied
 
-        if (result.state === 'granted') {
-          startCamera();
-        } else if (result.state === 'prompt') {
-          setShowPermissionDialog(true);
-        } else if (result.state === 'denied') {
-          setShowPermissionDialog(true);
-        }
+    // Check if Safari on iOS (doesn't support permissions.query for camera)
+    const isSafari = /^((?!chrome|android).)*safari/i.test(navigator.userAgent);
+    const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent);
 
-        result.addEventListener('change', () => {
-          setPermissionState(result.state as 'prompt' | 'denied' | 'granted');
-          if (result.state === 'granted') {
-            setShowPermissionDialog(false);
-            startCamera();
-          }
-        });
-      } catch {
-        // Fallback - try to start camera directly
+    if (isSafari || isIOS || !('permissions' in navigator)) {
+      // Go straight to camera - browser will show native prompt
+      startCamera();
+      return;
+    }
+
+    try {
+      const result = await navigator.permissions.query({ name: 'camera' as PermissionName });
+      setPermissionState(result.state as 'prompt' | 'denied' | 'granted');
+
+      if (result.state === 'granted' || result.state === 'prompt') {
+        // For both granted and prompt, just start camera
+        // Browser will show native prompt if needed
         startCamera();
+      } else if (result.state === 'denied') {
+        // Only show our dialog if previously denied
+        setShowPermissionDialog(true);
       }
-    } else {
+
+      result.addEventListener('change', () => {
+        setPermissionState(result.state as 'prompt' | 'denied' | 'granted');
+        if (result.state === 'granted') {
+          setShowPermissionDialog(false);
+          startCamera();
+        }
+      });
+    } catch {
+      // Fallback - try to start camera directly
       startCamera();
     }
   }, [startCamera]);

@@ -1,8 +1,8 @@
 'use client';
 
 /**
- * Badge Detector - Detects TrustCircle badges by looking for
- * the specific animated pattern with our exact colors
+ * Badge Detector - Detects TrustCircle badges by their unique zone colors
+ * Each zone has a specific color pair that must both be present
  */
 
 interface DetectionResult {
@@ -10,18 +10,38 @@ interface DetectionResult {
   ready: boolean;
   guidance: string;
   confidence: number;
+  matchedZone?: string;
 }
 
-// Exact TrustCircle badge colors - must match these precisely
-const BRIARWOOD_COLORS = {
-  primary: { r: 27, g: 54, b: 93 },    // #1B365D - dark navy
-  secondary: { r: 74, g: 144, b: 217 }, // #4A90D9 - bright blue
-};
+// Zone color definitions - must match DEMO_ZONES in API and demo pages
+const ZONE_COLORS = [
+  {
+    name: 'Briarwood',
+    primary: { r: 27, g: 54, b: 93 },     // #1B365D dark navy
+    secondary: { r: 74, g: 144, b: 217 }, // #4A90D9 bright blue
+  },
+  {
+    name: 'Oak Ridge',
+    primary: { r: 45, g: 80, b: 22 },     // #2D5016 dark green
+    secondary: { r: 107, g: 142, b: 35 }, // #6B8E23 olive green
+  },
+  {
+    name: 'Riverside',
+    primary: { r: 26, g: 77, b: 92 },     // #1A4D5C dark teal
+    secondary: { r: 78, g: 205, b: 196 }, // #4ECDC4 bright teal
+  },
+  {
+    name: 'Maplewood',
+    primary: { r: 139, g: 69, b: 19 },    // #8B4513 saddle brown
+    secondary: { r: 210, g: 105, b: 30 }, // #D2691E chocolate orange
+  },
+];
 
 export class BadgeDetector {
   private canvas: HTMLCanvasElement;
   private ctx: CanvasRenderingContext2D;
   private stableFrames = 0;
+  private lastMatchedZone: string | null = null;
 
   constructor() {
     this.canvas = document.createElement('canvas');
@@ -36,8 +56,8 @@ export class BadgeDetector {
       return { detected: false, ready: false, guidance: 'Starting camera...', confidence: 0 };
     }
 
-    // Sample center of frame at reduced resolution
-    const scale = 0.25;
+    // Sample center of frame at reduced resolution for speed
+    const scale = 0.3;
     const sw = Math.floor(width * scale);
     const sh = Math.floor(height * scale);
 
@@ -45,70 +65,85 @@ export class BadgeDetector {
     this.canvas.height = sh;
     this.ctx.drawImage(video, 0, 0, sw, sh);
 
-    // Only look at center 40% where badge should be
-    const regionSize = Math.floor(Math.min(sw, sh) * 0.4);
+    // Sample center 50% where badge should be
+    const regionSize = Math.floor(Math.min(sw, sh) * 0.5);
     const startX = Math.floor((sw - regionSize) / 2);
     const startY = Math.floor((sh - regionSize) / 2);
 
     const imageData = this.ctx.getImageData(startX, startY, regionSize, regionSize);
     const data = imageData.data;
 
-    // Count pixels that match our EXACT badge colors (with tolerance)
-    let primaryMatches = 0;
-    let secondaryMatches = 0;
-    let totalPixels = 0;
+    // Check each zone's colors
+    let bestZone: string | null = null;
+    let bestScore = 0;
 
-    // Check every 4th pixel for speed
-    for (let i = 0; i < data.length; i += 16) {
-      const r = data[i];
-      const g = data[i + 1];
-      const b = data[i + 2];
-      totalPixels++;
+    for (const zone of ZONE_COLORS) {
+      let primaryMatches = 0;
+      let secondaryMatches = 0;
+      let totalPixels = 0;
 
-      // Check primary color match (dark navy blue)
-      const primaryDist = colorDistance(r, g, b, BRIARWOOD_COLORS.primary);
-      if (primaryDist < 50) {
-        primaryMatches++;
+      // Sample every 4th pixel for speed
+      for (let i = 0; i < data.length; i += 16) {
+        const r = data[i];
+        const g = data[i + 1];
+        const b = data[i + 2];
+        totalPixels++;
+
+        const primaryDist = colorDistance(r, g, b, zone.primary);
+        const secondaryDist = colorDistance(r, g, b, zone.secondary);
+
+        // Tolerance of 55 for color match
+        if (primaryDist < 55) primaryMatches++;
+        if (secondaryDist < 55) secondaryMatches++;
       }
 
-      // Check secondary color match (bright blue)
-      const secondaryDist = colorDistance(r, g, b, BRIARWOOD_COLORS.secondary);
-      if (secondaryDist < 50) {
-        secondaryMatches++;
+      const primaryRatio = primaryMatches / totalPixels;
+      const secondaryRatio = secondaryMatches / totalPixels;
+
+      // Need BOTH colors present - this is key to avoid false positives
+      // At least 5% of each color
+      if (primaryRatio > 0.05 && secondaryRatio > 0.03) {
+        const score = primaryRatio + secondaryRatio;
+        if (score > bestScore) {
+          bestScore = score;
+          bestZone = zone.name;
+        }
       }
     }
 
-    const primaryRatio = primaryMatches / totalPixels;
-    const secondaryRatio = secondaryMatches / totalPixels;
+    const detected = bestScore > 0.12;
+    const confidence = Math.min(1, bestScore * 4);
 
-    // STRICT: Need BOTH colors present in significant amounts
-    // Real badge has gradient so should have both
-    const hasPrimary = primaryRatio > 0.08;  // At least 8% dark blue
-    const hasSecondary = secondaryRatio > 0.05; // At least 5% bright blue
-    const detected = hasPrimary && hasSecondary;
-
-    const confidence = detected ? Math.min(1, (primaryRatio + secondaryRatio) * 3) : 0;
-
-    // Track stability - need 8 consecutive frames
-    if (detected) {
+    // Track stability - same zone detected for consecutive frames
+    if (detected && bestZone === this.lastMatchedZone) {
       this.stableFrames++;
+    } else if (detected) {
+      this.stableFrames = 1;
+      this.lastMatchedZone = bestZone;
     } else {
       this.stableFrames = 0;
+      this.lastMatchedZone = null;
     }
 
-    const ready = this.stableFrames >= 8;
+    // Need 10 stable frames (~1 second at 10fps)
+    const ready = this.stableFrames >= 10;
 
-    // Guidance
     let guidance: string;
     if (!detected) {
       guidance = 'Point at a TrustCircle badge';
     } else if (!ready) {
-      guidance = 'Hold steady...';
+      guidance = `Detecting ${bestZone}... hold steady`;
     } else {
       guidance = 'Verifying...';
     }
 
-    return { detected, ready, guidance, confidence };
+    return {
+      detected,
+      ready,
+      guidance,
+      confidence,
+      matchedZone: bestZone || undefined,
+    };
   }
 
   extractColorSignature(video: HTMLVideoElement): number[] {
@@ -120,33 +155,35 @@ export class BadgeDetector {
     this.ctx.drawImage(video, 0, 0);
 
     // Sample center region
-    const size = Math.floor(Math.min(width, height) * 0.3);
+    const size = Math.floor(Math.min(width, height) * 0.35);
     const startX = Math.floor((width - size) / 2);
     const startY = Math.floor((height - size) / 2);
 
     const imageData = this.ctx.getImageData(startX, startY, size, size);
     const data = imageData.data;
 
-    // Collect actual badge-colored pixels only
+    // Collect colors that match ANY zone's colors
     const colors: number[] = [];
 
-    for (let i = 0; i < data.length && colors.length < 150; i += 16) {
+    for (let i = 0; i < data.length && colors.length < 180; i += 8) {
       const r = data[i];
       const g = data[i + 1];
       const b = data[i + 2];
 
-      // Only include pixels that are close to our badge colors
-      const primaryDist = colorDistance(r, g, b, BRIARWOOD_COLORS.primary);
-      const secondaryDist = colorDistance(r, g, b, BRIARWOOD_COLORS.secondary);
+      // Check if this pixel matches any zone color
+      for (const zone of ZONE_COLORS) {
+        const primaryDist = colorDistance(r, g, b, zone.primary);
+        const secondaryDist = colorDistance(r, g, b, zone.secondary);
 
-      if (primaryDist < 60 || secondaryDist < 60) {
-        colors.push(r, g, b);
+        if (primaryDist < 60 || secondaryDist < 60) {
+          colors.push(r, g, b);
+          break;
+        }
       }
     }
 
-    // If we didn't find enough badge-colored pixels, detection was wrong
+    // Need at least 10 badge-colored pixels
     if (colors.length < 30) {
-      console.log('Not enough badge colors found:', colors.length / 3, 'pixels');
       return [];
     }
 
@@ -155,10 +192,16 @@ export class BadgeDetector {
 
   reset() {
     this.stableFrames = 0;
+    this.lastMatchedZone = null;
   }
 }
 
-function colorDistance(r: number, g: number, b: number, target: { r: number; g: number; b: number }): number {
+function colorDistance(
+  r: number,
+  g: number,
+  b: number,
+  target: { r: number; g: number; b: number }
+): number {
   return Math.sqrt(
     Math.pow(r - target.r, 2) +
     Math.pow(g - target.g, 2) +

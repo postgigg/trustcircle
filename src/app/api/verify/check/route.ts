@@ -85,78 +85,68 @@ export async function POST(request: NextRequest) {
 }
 
 // Check if the scanned colors match any demo zone badge
+// Returns the BEST matching zone, not just the first match
 function checkDemoZonesMatch(colorSignature: number[]): typeof DEMO_ZONES[0] | null {
+  const totalSamples = colorSignature.length / 3;
+  if (totalSamples === 0) return null;
+
+  let bestZone: typeof DEMO_ZONES[0] | null = null;
+  let bestScore = 0;
+
   for (const demoZone of DEMO_ZONES) {
     const primaryRGB = hexToRgb(demoZone.color_primary);
     const secondaryRGB = hexToRgb(demoZone.color_secondary);
 
     if (!primaryRGB || !secondaryRGB) continue;
 
-    let primaryMatch = 0;
-    let secondaryMatch = 0;
-    let dominantColorPixels = 0;
+    let totalDistance = 0;
+    let matchingPixels = 0;
 
     for (let i = 0; i < colorSignature.length; i += 3) {
       const r = colorSignature[i];
       const g = colorSignature[i + 1];
       const b = colorSignature[i + 2];
 
-      // Check for primary color
+      // Calculate distance to primary color
       const primaryDist = Math.sqrt(
         Math.pow(r - primaryRGB.r, 2) +
         Math.pow(g - primaryRGB.g, 2) +
         Math.pow(b - primaryRGB.b, 2)
       );
-      if (primaryDist < 80) primaryMatch++;
 
-      // Check for secondary color
+      // Calculate distance to secondary color
       const secondaryDist = Math.sqrt(
         Math.pow(r - secondaryRGB.r, 2) +
         Math.pow(g - secondaryRGB.g, 2) +
         Math.pow(b - secondaryRGB.b, 2)
       );
-      if (secondaryDist < 80) secondaryMatch++;
 
-      // Check if pixel matches general color family of this zone
-      // Determine dominant channel of the zone's colors
-      const zoneDominant = getDominantChannel(primaryRGB);
-      if (isDominantMatch(r, g, b, zoneDominant)) {
-        dominantColorPixels++;
+      // Use the closer color match
+      const minDist = Math.min(primaryDist, secondaryDist);
+
+      // Count as matching if reasonably close (within 100 units)
+      if (minDist < 100) {
+        matchingPixels++;
+        totalDistance += minDist;
       }
     }
 
-    const totalSamples = colorSignature.length / 3;
-    const primaryRatio = primaryMatch / totalSamples;
-    const secondaryRatio = secondaryMatch / totalSamples;
-    const dominantRatio = dominantColorPixels / totalSamples;
+    // Calculate score: more matching pixels + closer distances = higher score
+    const matchRatio = matchingPixels / totalSamples;
+    const avgDistance = matchingPixels > 0 ? totalDistance / matchingPixels : 255;
 
-    // Match if we have significant colors matching this zone's badge
-    const hasColorMatch = (primaryRatio > 0.1 || secondaryRatio > 0.1);
-    const hasDominantPresence = dominantRatio > 0.25;
+    // Score formula: match ratio weighted by inverse distance
+    // Higher match ratio and lower distance = better score
+    const score = matchRatio * (1 - avgDistance / 255);
 
-    if (hasColorMatch && hasDominantPresence) {
-      return demoZone;
+    // Need at least 15% of pixels to match
+    if (matchRatio >= 0.15 && score > bestScore) {
+      bestScore = score;
+      bestZone = demoZone;
     }
   }
 
-  return null;
-}
-
-// Get the dominant color channel for a color
-function getDominantChannel(rgb: { r: number; g: number; b: number }): 'r' | 'g' | 'b' {
-  if (rgb.r >= rgb.g && rgb.r >= rgb.b) return 'r';
-  if (rgb.g >= rgb.r && rgb.g >= rgb.b) return 'g';
-  return 'b';
-}
-
-// Check if a pixel has the same dominant channel
-function isDominantMatch(r: number, g: number, b: number, dominant: 'r' | 'g' | 'b'): boolean {
-  const threshold = 1.1; // 10% higher than others
-  switch (dominant) {
-    case 'r': return r > g * threshold && r > b * threshold && r > 50;
-    case 'g': return g > r * threshold && g > b * threshold && g > 50;
-    case 'b': return b > r * threshold && b > g * 0.9 && b > 50;
-  }
+  return bestZone;
 }
 
 function extractParamsFromColors(

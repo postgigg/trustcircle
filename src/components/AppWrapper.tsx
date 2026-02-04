@@ -4,6 +4,7 @@ import { useState, useEffect } from 'react';
 import PermissionsOnboarding from './PermissionsOnboarding';
 import InstallPrompt from './InstallPrompt';
 import { PaywallProvider } from '@/contexts/PaywallContext';
+import { ToastProvider } from '@/contexts/ToastContext';
 
 interface AppWrapperProps {
   children: React.ReactNode;
@@ -15,7 +16,16 @@ export default function AppWrapper({ children }: AppWrapperProps) {
   const [mode, setMode] = useState<AppMode>('loading');
   const [showOnboarding, setShowOnboarding] = useState(false);
 
+  // Check landing page synchronously from pathname (works on client)
+  // We use a function to check this that will work during first render
+  const getLandingPages = () => ['/', '/faq', '/privacy', '/terms', '/verify'];
+
+  const [currentPath, setCurrentPath] = useState<string | null>(null);
+
   useEffect(() => {
+    // Set current path immediately
+    setCurrentPath(window.location.pathname);
+
     // Detect device and app mode
     const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
     const isStandalone = window.matchMedia('(display-mode: standalone)').matches ||
@@ -41,8 +51,23 @@ export default function AppWrapper({ children }: AppWrapperProps) {
     setShowOnboarding(false);
   };
 
-  // Loading state
-  if (mode === 'loading') {
+  // Determine if we're on a landing page (publicly accessible pages)
+  const isLandingPage = currentPath !== null && getLandingPages().includes(currentPath);
+
+  // If on landing page (/, /faq, /privacy, /terms, /verify), always show the page content
+  // regardless of desktop/mobile browser - these are public pages anyone can view
+  if (isLandingPage) {
+    return (
+      <ToastProvider>
+        <PaywallProvider>
+          {children}
+        </PaywallProvider>
+      </ToastProvider>
+    );
+  }
+
+  // Loading state - only show spinner for non-landing pages
+  if (mode === 'loading' || currentPath === null) {
     return (
       <div className="min-h-screen min-h-[100dvh] bg-[#fafaf9] flex items-center justify-center">
         <div className="w-6 h-6 border-2 border-neutral-300 border-t-neutral-800 rounded-full animate-spin" />
@@ -50,12 +75,12 @@ export default function AppWrapper({ children }: AppWrapperProps) {
     );
   }
 
-  // Desktop - show "use your phone" message
+  // Desktop trying to access app pages - show "use your phone" message
   if (mode === 'desktop') {
     return <DesktopMessage />;
   }
 
-  // Mobile browser (not installed as PWA) - show install prompt
+  // Mobile browser (not installed as PWA) trying to access app pages - show install prompt
   if (mode === 'mobile-browser') {
     return <MobileInstallScreen />;
   }
@@ -66,10 +91,12 @@ export default function AppWrapper({ children }: AppWrapperProps) {
   }
 
   return (
-    <PaywallProvider>
-      {children}
-      <InstallPrompt />
-    </PaywallProvider>
+    <ToastProvider>
+      <PaywallProvider>
+        {children}
+        <InstallPrompt />
+      </PaywallProvider>
+    </ToastProvider>
   );
 }
 

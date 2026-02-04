@@ -6,6 +6,9 @@ import { getDeviceToken, getZone, getVerificationStartDate, isRegistered } from 
 import { hasPin } from '@/lib/pin';
 import { collectPresenceData, isNighttime } from '@/lib/presence';
 import { checkAndRecordMovement, getMovementDaysCount } from '@/lib/movement';
+import BottomNav from '@/components/ui/BottomNav';
+import LoadingSpinner from '@/components/ui/LoadingSpinner';
+import { HelpTooltip } from '@/components/ui/Tooltip';
 import type { Zone } from '@/types';
 
 export default function VerifyingPage() {
@@ -160,7 +163,7 @@ export default function VerifyingPage() {
     return (
       <div className="min-h-screen min-h-[100dvh] bg-[#fafaf9] flex items-center justify-center px-4">
         <div className="flex flex-col items-center gap-4">
-          <div className="w-6 h-6 border-2 border-neutral-300 border-t-neutral-800 rounded-full animate-spin" />
+          <LoadingSpinner size="md" />
           <p className="text-neutral-500 text-sm tracking-wide">Loading...</p>
         </div>
       </div>
@@ -259,9 +262,15 @@ export default function VerifyingPage() {
                     <path strokeLinecap="round" strokeLinejoin="round" d="M20.354 15.354A9 9 0 018.646 3.646 9.003 9.003 0 0012 21a9.003 9.003 0 008.354-5.646z" />
                   </svg>
                 </div>
-                <div>
-                  <p className="font-semibold text-neutral-900">Nights at home</p>
-                  <p className="text-sm text-neutral-500">Sleep here 14 nights</p>
+                <div className="flex items-center gap-2">
+                  <div>
+                    <p className="font-semibold text-neutral-900">Nights at home</p>
+                    <p className="text-sm text-neutral-500">Sleep here 14 nights</p>
+                  </div>
+                  <HelpTooltip
+                    content="We check that your phone is in your neighborhood zone during nighttime hours (10 PM - 6 AM). You don't need to be home the entire night."
+                    position="bottom"
+                  />
                 </div>
               </div>
               <div className="text-right">
@@ -296,9 +305,15 @@ export default function VerifyingPage() {
                     <path strokeLinecap="round" strokeLinejoin="round" d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6" />
                   </svg>
                 </div>
-                <div>
-                  <p className="font-semibold text-neutral-900">Movement detected</p>
-                  <p className="text-sm text-neutral-500">Natural activity on 10 days</p>
+                <div className="flex items-center gap-2">
+                  <div>
+                    <p className="font-semibold text-neutral-900">Movement detected</p>
+                    <p className="text-sm text-neutral-500">Natural activity on 10 days</p>
+                  </div>
+                  <HelpTooltip
+                    content="We detect natural daily patterns—walking, driving, commuting. This proves you're a real person, not a spoofed location. Just carry your phone and live normally."
+                    position="bottom"
+                  />
                 </div>
               </div>
               <div className="text-right">
@@ -342,6 +357,10 @@ export default function VerifyingPage() {
                     <path strokeLinecap="round" strokeLinejoin="round" d="M13 10V3L4 14h7v7l9-11h-7z" />
                   </svg>
                   <span className="text-sm font-semibold text-amber-400 uppercase tracking-wider">Fast-Track</span>
+                  <HelpTooltip
+                    content="Fast-track lets you skip the 14-day wait and get verified instantly. 75% of the fee goes to sponsor neighbors who can't afford the monthly cost."
+                    position="right"
+                  />
                 </div>
                 <h3 className="text-xl font-bold">Skip the wait</h3>
               </div>
@@ -469,48 +488,7 @@ export default function VerifyingPage() {
       </main>
 
       {/* Bottom Navigation */}
-      <nav className="fixed bottom-0 left-0 right-0 bg-white border-t border-neutral-200 safe-area-pb">
-        <div className="flex max-w-lg mx-auto">
-          <button className="flex-1 py-3 flex flex-col items-center gap-1 text-neutral-900">
-            <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
-              <path strokeLinecap="round" strokeLinejoin="round" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
-            </svg>
-            <span className="text-xs font-medium">Verifying</span>
-          </button>
-
-          <button
-            onClick={() => router.push('/verify')}
-            className="flex-1 py-3 flex flex-col items-center gap-1 text-neutral-400 hover:text-neutral-900 transition-colors"
-          >
-            <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
-              <path strokeLinecap="round" strokeLinejoin="round" d="M3 9a2 2 0 012-2h.93a2 2 0 001.664-.89l.812-1.22A2 2 0 0110.07 4h3.86a2 2 0 011.664.89l.812 1.22A2 2 0 0018.07 7H19a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V9z" />
-              <circle cx="12" cy="13" r="3" />
-            </svg>
-            <span className="text-xs font-medium">Verify</span>
-          </button>
-
-          <button
-            onClick={() => router.push('/alerts')}
-            className="flex-1 py-3 flex flex-col items-center gap-1 text-neutral-400 hover:text-neutral-900 transition-colors"
-          >
-            <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
-              <path strokeLinecap="round" strokeLinejoin="round" d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9" />
-            </svg>
-            <span className="text-xs font-medium">Alerts</span>
-          </button>
-
-          <button
-            onClick={() => router.push('/settings')}
-            className="flex-1 py-3 flex flex-col items-center gap-1 text-neutral-400 hover:text-neutral-900 transition-colors"
-          >
-            <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
-              <path strokeLinecap="round" strokeLinejoin="round" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
-              <circle cx="12" cy="12" r="3" />
-            </svg>
-            <span className="text-xs font-medium">Settings</span>
-          </button>
-        </div>
-      </nav>
+      <BottomNav />
     </div>
   );
 }

@@ -114,6 +114,7 @@ export default function SubsidyRenewPage() {
   const vouchCount = renewalStatus?.vouchCount || 0;
   const vouchesNeeded = 10 - vouchCount;
   const progress = (vouchCount / 10) * 100;
+  const isRenewalComplete = vouchCount >= 10;
 
   return (
     <div className="min-h-screen min-h-[100dvh] bg-[#fafaf9] flex flex-col">
@@ -183,6 +184,30 @@ export default function SubsidyRenewPage() {
               >
                 Subscribe $0.99/month
               </button>
+            </div>
+          </div>
+        ) : isRenewalComplete ? (
+          /* Success screen */
+          <div className="text-center py-8">
+            <div className="w-24 h-24 mx-auto mb-6 rounded-full bg-emerald-50 flex items-center justify-center">
+              <svg className="w-12 h-12 text-emerald-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+              </svg>
+            </div>
+            <h2 className="text-2xl font-bold text-neutral-900 mb-2">Renewal Complete!</h2>
+            <p className="text-neutral-500 mb-8 max-w-xs mx-auto">
+              Your community sponsorship has been renewed for another year. Thank you for being part of TrustCircle!
+            </p>
+            <div className="space-y-3">
+              <button
+                onClick={() => router.push('/badge')}
+                className="w-full py-4 bg-neutral-900 text-white rounded-2xl font-semibold text-lg hover:bg-neutral-800 transition-colors"
+              >
+                View My Badge
+              </button>
+              <p className="text-xs text-neutral-400">
+                Your badge will remain active for 12 more months
+              </p>
             </div>
           </div>
         ) : (

@@ -302,12 +302,12 @@ export default function Scanner({ onResult, onCancel }: ScannerProps) {
         <canvas ref={canvasRef} className="hidden" />
 
         {/* Scanning Overlay */}
-        <div className="absolute inset-0 flex items-center justify-center">
+        <div className="absolute inset-0 flex items-center justify-center" role="region" aria-label="Badge scanning area">
           {/* Darkened corners */}
-          <div className="absolute inset-0 bg-black/40" />
+          <div className="absolute inset-0 bg-black/40" aria-hidden="true" />
 
           {/* Clear scanning area */}
-          <div className="relative z-10">
+          <div className="relative z-10" aria-hidden="true">
             {/* Outer ring */}
             <div className="w-72 h-72 rounded-full border-4 border-white/30 flex items-center justify-center">
               {/* Animated scanning ring */}
@@ -362,15 +362,17 @@ export default function Scanner({ onResult, onCancel }: ScannerProps) {
             <div className="flex gap-4 max-w-lg mx-auto">
               <button
                 onClick={onCancel}
-                className="flex-1 py-4 bg-white/10 backdrop-blur-sm text-white rounded-2xl font-semibold hover:bg-white/20 transition-colors border border-white/20"
+                className="flex-1 py-4 bg-white/10 backdrop-blur-sm text-white rounded-2xl font-semibold hover:bg-white/20 transition-colors border border-white/20 focus:outline-none focus:ring-2 focus:ring-white/50"
+                aria-label="Cancel scanning"
               >
                 Cancel
               </button>
               <button
                 onClick={handleManualCheck}
-                className="flex-1 py-4 bg-[#E74C3C] text-white rounded-2xl font-semibold hover:bg-[#c0392b] transition-colors flex items-center justify-center gap-2"
+                className="flex-1 py-4 bg-[#E74C3C] text-white rounded-2xl font-semibold hover:bg-[#c0392b] transition-colors flex items-center justify-center gap-2 focus:outline-none focus:ring-2 focus:ring-red-400"
+                aria-label="Report badge not recognized"
               >
-                <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
+                <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2" aria-hidden="true">
                   <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
                 </svg>
                 Not Recognized

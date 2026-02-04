@@ -225,16 +225,25 @@ export default function IncidentForm({ zoneName, onSubmit, onSkip }: IncidentFor
         </div>
       </div>
 
-      <div className="fixed bottom-0 left-0 right-0 p-4 bg-white border-t border-[#E0E0E0]">
+      <div className="fixed bottom-0 left-0 right-0 p-4 bg-white border-t border-neutral-200 safe-area-pb">
+        {/* Privacy note */}
+        <div className="mb-3 flex items-start gap-2 text-xs text-neutral-500">
+          <svg className="w-4 h-4 text-neutral-400 flex-shrink-0 mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+            <path strokeLinecap="round" strokeLinejoin="round" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
+          </svg>
+          <span>
+            This report is anonymous. Only your neighborhood can see it, and it expires in 24 hours.
+          </span>
+        </div>
         <button
           onClick={handleSubmit}
-          className="w-full py-4 bg-[#E74C3C] text-white rounded-xl font-bold text-lg"
+          className="w-full py-4 bg-red-500 text-white rounded-xl font-bold text-lg hover:bg-red-600 transition-colors focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-red-500"
         >
           Send Alert
         </button>
         <button
           onClick={onSkip}
-          className="w-full py-2 mt-2 text-[#7F8C8D]"
+          className="w-full py-2 mt-2 text-neutral-500 hover:text-neutral-700 transition-colors"
         >
           Skip
         </button>

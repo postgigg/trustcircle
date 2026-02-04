@@ -36,18 +36,23 @@ export default function VouchConfirm({
     return (
       <div className="fixed inset-0 bg-black/50 flex items-center justify-center p-4">
         <div className="bg-white rounded-2xl p-6 max-w-sm w-full text-center">
-          <div className="w-20 h-20 mx-auto mb-4 rounded-full bg-[#2ECC71]/10 flex items-center justify-center">
-            <svg className="w-10 h-10 text-[#2ECC71]" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+          <div className="w-20 h-20 mx-auto mb-4 rounded-full bg-emerald-50 flex items-center justify-center">
+            <svg className="w-10 h-10 text-emerald-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
             </svg>
           </div>
-          <h2 className="text-xl font-bold text-[#2C3E50]">Thank you!</h2>
-          <p className="text-[#7F8C8D] mt-2">
-            You have {vouchesRemaining - 1} vouches remaining this year.
+          <h2 className="text-xl font-bold text-neutral-900">Sponsorship Recorded!</h2>
+          <p className="text-neutral-500 mt-2">
+            You&apos;ve helped a neighbor join TrustCircle.
           </p>
+          <div className="mt-4 p-3 bg-neutral-100 rounded-xl">
+            <p className="text-sm text-neutral-600">
+              <span className="font-semibold">{vouchesRemaining - 1}</span> sponsorships remaining this year
+            </p>
+          </div>
           <button
             onClick={onCancel}
-            className="w-full mt-6 py-3 bg-[#1B365D] text-white rounded-xl font-semibold"
+            className="w-full mt-6 py-3 bg-neutral-900 text-white rounded-xl font-semibold hover:bg-neutral-800 transition-colors"
           >
             Done
           </button>
@@ -59,25 +64,25 @@ export default function VouchConfirm({
   return (
     <div className="fixed inset-0 bg-black/50 flex items-center justify-center p-4">
       <div className="bg-white rounded-2xl p-6 max-w-sm w-full">
-        <h2 className="text-xl font-bold text-[#2C3E50] text-center">
-          Vouch for a neighbor?
+        <h2 className="text-xl font-bold text-neutral-900 text-center">
+          Sponsor a neighbor?
         </h2>
 
-        <div className="mt-4 p-4 bg-[#FAFAFA] rounded-xl">
-          <p className="text-center text-[#7F8C8D]">
-            <span className="font-semibold text-[#2C3E50]">{zoneName}</span>
+        <div className="mt-4 p-4 bg-neutral-100 rounded-xl">
+          <p className="text-center text-neutral-600">
+            <span className="font-semibold text-neutral-900">{zoneName}</span>
             <br />
-            Someone in your community is requesting subsidized access
+            Someone in your community is requesting free access
           </p>
         </div>
 
-        <p className="mt-4 text-sm text-[#7F8C8D] text-center">
-          By vouching, you confirm this person is part of your community
+        <p className="mt-4 text-sm text-neutral-500 text-center">
+          By sponsoring, you confirm this person lives in your neighborhood
         </p>
 
         {error && (
-          <div className="mt-4 p-3 bg-[#E74C3C]/10 rounded-lg">
-            <p className="text-[#E74C3C] text-sm text-center">{error}</p>
+          <div className="mt-4 p-3 bg-red-50 border border-red-200 rounded-xl">
+            <p className="text-red-600 text-sm text-center">{error}</p>
           </div>
         )}
 
@@ -85,28 +90,28 @@ export default function VouchConfirm({
           <button
             onClick={onCancel}
             disabled={isLoading}
-            className="flex-1 py-3 bg-[#FAFAFA] text-[#7F8C8D] rounded-xl font-semibold hover:bg-[#E0E0E0] transition-colors disabled:opacity-50"
+            className="flex-1 py-3 bg-neutral-100 text-neutral-600 rounded-xl font-semibold hover:bg-neutral-200 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
           >
             Cancel
           </button>
           <button
             onClick={handleConfirm}
             disabled={isLoading || vouchesRemaining <= 0}
-            className="flex-1 py-3 bg-[#2ECC71] text-white rounded-xl font-semibold hover:bg-[#27AE60] transition-colors disabled:opacity-50"
+            className="flex-1 py-3 bg-emerald-500 text-white rounded-xl font-semibold hover:bg-emerald-600 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
           >
-            {isLoading ? 'Vouching...' : 'Vouch'}
+            {isLoading ? 'Sponsoring...' : 'Sponsor'}
           </button>
         </div>
 
         {vouchesRemaining <= 0 && (
-          <p className="mt-4 text-sm text-[#E74C3C] text-center">
-            You have used all your vouches for this year
+          <p className="mt-4 text-sm text-red-500 text-center">
+            You&apos;ve used all your sponsorships for this year
           </p>
         )}
 
         {vouchesRemaining > 0 && (
-          <p className="mt-4 text-xs text-[#7F8C8D] text-center">
-            You have {vouchesRemaining} vouches remaining this year
+          <p className="mt-4 text-xs text-neutral-400 text-center">
+            {vouchesRemaining} sponsorship{vouchesRemaining !== 1 ? 's' : ''} remaining this year
           </p>
         )}
       </div>

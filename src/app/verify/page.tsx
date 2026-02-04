@@ -4,12 +4,12 @@ import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import Scanner from '@/components/Scanner';
 import IncidentForm from '@/components/IncidentForm';
-import ProtectedRoute from '@/components/ProtectedRoute';
 import type { IncidentFormData } from '@/types';
 
 type ViewState = 'scanner' | 'success' | 'failed' | 'incident';
 
-function VerifyPageContent() {
+// Anyone can verify someone - no subscription required
+export default function VerifyPage() {
   const router = useRouter();
   const [view, setView] = useState<ViewState>('scanner');
   const [verifiedZoneName, setVerifiedZoneName] = useState<string>('');
@@ -104,12 +104,4 @@ function VerifyPageContent() {
   }
 
   return <Scanner onResult={handleScanResult} onCancel={handleCancel} />;
-}
-
-export default function VerifyPage() {
-  return (
-    <ProtectedRoute>
-      <VerifyPageContent />
-    </ProtectedRoute>
-  );
 }

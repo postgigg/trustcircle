@@ -160,13 +160,22 @@ export default function SubsidyQR({ deviceToken, zoneId, vouchCount, zoneName, o
               </div>
             </div>
           </div>
+        ) : vouchCount === 0 ? (
+          <div className="mt-4 p-4 bg-neutral-100 rounded-xl">
+            <p className="font-medium text-neutral-900">
+              Ready to get started
+            </p>
+            <p className="text-neutral-500 text-sm mt-1">
+              Find a neighbor with a TrustCircle badge in {zoneName} and scan it to collect your first sponsorship.
+            </p>
+          </div>
         ) : (
           <div className="mt-4 p-4 bg-neutral-100 rounded-xl">
             <p className="font-medium text-neutral-900">
               {remaining} more badge{remaining !== 1 ? 's' : ''} needed
             </p>
             <p className="text-neutral-500 text-sm mt-1">
-              Find verified residents in {zoneName}
+              Keep finding verified residents in {zoneName}
             </p>
           </div>
         )}

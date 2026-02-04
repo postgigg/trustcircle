@@ -147,6 +147,25 @@ export default function PinSetupPage() {
 
       {/* Main Content */}
       <main className="max-w-lg mx-auto px-6 py-12">
+        {/* Purpose explanation - only show on create step */}
+        {step === 'create' && (
+          <div className="mb-8 p-4 bg-blue-50 border border-blue-100 rounded-2xl">
+            <div className="flex items-start gap-3">
+              <div className="w-8 h-8 rounded-full bg-blue-100 flex items-center justify-center flex-shrink-0">
+                <svg className="w-4 h-4 text-blue-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                </svg>
+              </div>
+              <div>
+                <p className="font-medium text-blue-900 text-sm">Why do I need a PIN?</p>
+                <p className="text-blue-700 text-sm mt-1">
+                  Your PIN prevents others from using your badge if they get access to your phone. It&apos;s required every time you view your badge.
+                </p>
+              </div>
+            </div>
+          </div>
+        )}
+
         {/* Title */}
         <div className="mb-12">
           <h1 className="text-4xl sm:text-5xl font-bold text-neutral-900 tracking-tight">
@@ -255,18 +274,27 @@ export default function PinSetupPage() {
         </div>
 
         {/* Security Notice */}
-        <div className="mt-8 p-4 bg-neutral-100 rounded-xl">
+        <div className="mt-8 p-4 bg-amber-50 border border-amber-100 rounded-xl">
           <div className="flex items-start gap-3">
             <div className="w-8 h-8 rounded-full bg-amber-100 flex items-center justify-center flex-shrink-0">
               <svg className="w-4 h-4 text-amber-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
-                <path strokeLinecap="round" strokeLinejoin="round" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
+                <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
               </svg>
             </div>
             <div>
-              <p className="font-medium text-neutral-900 text-sm">Your PIN never leaves this device</p>
-              <p className="text-neutral-500 text-sm mt-1">
-                If you forget it, you&apos;ll need to re-register. We can&apos;t recover it because we never store it.
+              <p className="font-medium text-amber-900 text-sm">Remember your PIN!</p>
+              <p className="text-amber-700 text-sm mt-1">
+                Your PIN is stored only on this device. If you forget it, you&apos;ll need to delete your account and re-register.
               </p>
+              <a
+                href="/faq#troubleshooting"
+                className="inline-flex items-center gap-1 text-amber-800 text-sm font-medium mt-2 hover:underline"
+              >
+                Learn more about PIN recovery
+                <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
+                </svg>
+              </a>
             </div>
           </div>
         </div>

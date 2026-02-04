@@ -96,7 +96,7 @@ function SubsidyContent() {
         setSubscriptionType('subsidized');
         setLoading(false);
       } catch {
-        setError('Failed to start subsidy request. Please try again.');
+        setError('Something went wrong. Please check your connection and try again.');
         setLoading(false);
       }
     };
@@ -149,8 +149,8 @@ function SubsidyContent() {
     return (
       <div className="min-h-screen bg-[#fafaf9] flex items-center justify-center">
         <div className="flex flex-col items-center gap-4">
-          <div className="w-5 h-5 border-2 border-neutral-300 border-t-neutral-800 rounded-full animate-spin" />
-          <p className="text-neutral-500 text-sm tracking-wide">Setting up...</p>
+          <div className="w-6 h-6 border-2 border-neutral-300 border-t-neutral-800 rounded-full animate-spin" />
+          <p className="text-neutral-500 text-sm tracking-wide">Setting up your sponsorship request...</p>
         </div>
       </div>
     );

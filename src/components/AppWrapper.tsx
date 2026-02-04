@@ -20,6 +20,11 @@ export default function AppWrapper({ children }: AppWrapperProps) {
   // We use a function to check this that will work during first render
   const getLandingPages = () => ['/', '/faq', '/privacy', '/terms', '/verify'];
 
+  // Check if path is a public page (landing pages or demo routes)
+  const isPublicPage = (path: string) => {
+    return getLandingPages().includes(path) || path.startsWith('/demo');
+  };
+
   const [currentPath, setCurrentPath] = useState<string | null>(null);
 
   useEffect(() => {
@@ -51,10 +56,10 @@ export default function AppWrapper({ children }: AppWrapperProps) {
     setShowOnboarding(false);
   };
 
-  // Determine if we're on a landing page (publicly accessible pages)
-  const isLandingPage = currentPath !== null && getLandingPages().includes(currentPath);
+  // Determine if we're on a public page (landing pages or demo routes)
+  const isLandingPage = currentPath !== null && isPublicPage(currentPath);
 
-  // If on landing page (/, /faq, /privacy, /terms, /verify), always show the page content
+  // If on public page (/, /faq, /privacy, /terms, /verify, /demo/*), always show the page content
   // regardless of desktop/mobile browser - these are public pages anyone can view
   if (isLandingPage) {
     return (

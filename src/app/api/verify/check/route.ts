@@ -2,13 +2,39 @@ import { NextRequest, NextResponse } from 'next/server';
 import { supabase } from '@/lib/supabase';
 import { generateCurrentSeed, getAnimationParameters, verifySeedMatch } from '@/lib/badge-seed';
 
-// Demo zone for testing - matches the landing page badge colors
-const DEMO_ZONE = {
-  zone_id: 'demo-trustcircle',
-  zone_name: 'TrustCircle Demo',
-  color_primary: '#1B365D',
-  color_secondary: '#4A90D9',
-};
+// Demo zones for testing - can be viewed without PWA
+const DEMO_ZONES = [
+  {
+    zone_id: 'demo-trustcircle',
+    zone_name: 'TrustCircle Demo',
+    color_primary: '#1B365D',
+    color_secondary: '#4A90D9',
+  },
+  {
+    zone_id: 'demo-briarwood',
+    zone_name: 'Briarwood',
+    color_primary: '#1B365D',
+    color_secondary: '#4A90D9',
+  },
+  {
+    zone_id: 'demo-oakridge',
+    zone_name: 'Oak Ridge',
+    color_primary: '#2D5016',
+    color_secondary: '#6B8E23',
+  },
+  {
+    zone_id: 'demo-riverside',
+    zone_name: 'Riverside',
+    color_primary: '#1A4D5C',
+    color_secondary: '#4ECDC4',
+  },
+  {
+    zone_id: 'demo-maplewood',
+    zone_name: 'Maplewood',
+    color_primary: '#8B4513',
+    color_secondary: '#D2691E',
+  },
+];
 
 export async function POST(request: NextRequest) {
   try {
@@ -18,13 +44,13 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Missing required fields' }, { status: 400 });
     }
 
-    // First check demo zone (landing page badge)
-    const demoMatch = checkDemoZoneMatch(colorSignature);
-    if (demoMatch) {
+    // First check demo zones (landing page badge and /demo/* routes)
+    const matchedDemoZone = checkDemoZonesMatch(colorSignature);
+    if (matchedDemoZone) {
       return NextResponse.json({
         verified: true,
-        zoneName: DEMO_ZONE.zone_name,
-        zoneId: DEMO_ZONE.zone_id,
+        zoneName: matchedDemoZone.zone_name,
+        zoneId: matchedDemoZone.zone_id,
         isDemo: true,
       });
     }
@@ -58,53 +84,79 @@ export async function POST(request: NextRequest) {
   }
 }
 
-// Check if the scanned colors match the demo zone badge
-function checkDemoZoneMatch(colorSignature: number[]): boolean {
-  const primaryRGB = { r: 27, g: 54, b: 93 };   // #1B365D
-  const secondaryRGB = { r: 74, g: 144, b: 217 }; // #4A90D9
+// Check if the scanned colors match any demo zone badge
+function checkDemoZonesMatch(colorSignature: number[]): typeof DEMO_ZONES[0] | null {
+  for (const demoZone of DEMO_ZONES) {
+    const primaryRGB = hexToRgb(demoZone.color_primary);
+    const secondaryRGB = hexToRgb(demoZone.color_secondary);
 
-  let primaryMatch = 0;
-  let secondaryMatch = 0;
-  let blueishPixels = 0;
+    if (!primaryRGB || !secondaryRGB) continue;
 
-  for (let i = 0; i < colorSignature.length; i += 3) {
-    const r = colorSignature[i];
-    const g = colorSignature[i + 1];
-    const b = colorSignature[i + 2];
+    let primaryMatch = 0;
+    let secondaryMatch = 0;
+    let dominantColorPixels = 0;
 
-    // Check for primary blue (dark navy)
-    const primaryDist = Math.sqrt(
-      Math.pow(r - primaryRGB.r, 2) +
-      Math.pow(g - primaryRGB.g, 2) +
-      Math.pow(b - primaryRGB.b, 2)
-    );
-    if (primaryDist < 80) primaryMatch++;
+    for (let i = 0; i < colorSignature.length; i += 3) {
+      const r = colorSignature[i];
+      const g = colorSignature[i + 1];
+      const b = colorSignature[i + 2];
 
-    // Check for secondary blue (lighter blue)
-    const secondaryDist = Math.sqrt(
-      Math.pow(r - secondaryRGB.r, 2) +
-      Math.pow(g - secondaryRGB.g, 2) +
-      Math.pow(b - secondaryRGB.b, 2)
-    );
-    if (secondaryDist < 80) secondaryMatch++;
+      // Check for primary color
+      const primaryDist = Math.sqrt(
+        Math.pow(r - primaryRGB.r, 2) +
+        Math.pow(g - primaryRGB.g, 2) +
+        Math.pow(b - primaryRGB.b, 2)
+      );
+      if (primaryDist < 80) primaryMatch++;
 
-    // Check if pixel is generally blue-ish (b > r and b > g)
-    if (b > r && b > g * 0.8) {
-      blueishPixels++;
+      // Check for secondary color
+      const secondaryDist = Math.sqrt(
+        Math.pow(r - secondaryRGB.r, 2) +
+        Math.pow(g - secondaryRGB.g, 2) +
+        Math.pow(b - secondaryRGB.b, 2)
+      );
+      if (secondaryDist < 80) secondaryMatch++;
+
+      // Check if pixel matches general color family of this zone
+      // Determine dominant channel of the zone's colors
+      const zoneDominant = getDominantChannel(primaryRGB);
+      if (isDominantMatch(r, g, b, zoneDominant)) {
+        dominantColorPixels++;
+      }
+    }
+
+    const totalSamples = colorSignature.length / 3;
+    const primaryRatio = primaryMatch / totalSamples;
+    const secondaryRatio = secondaryMatch / totalSamples;
+    const dominantRatio = dominantColorPixels / totalSamples;
+
+    // Match if we have significant colors matching this zone's badge
+    const hasColorMatch = (primaryRatio > 0.1 || secondaryRatio > 0.1);
+    const hasDominantPresence = dominantRatio > 0.25;
+
+    if (hasColorMatch && hasDominantPresence) {
+      return demoZone;
     }
   }
 
-  const totalSamples = colorSignature.length / 3;
-  const primaryRatio = primaryMatch / totalSamples;
-  const secondaryRatio = secondaryMatch / totalSamples;
-  const blueRatio = blueishPixels / totalSamples;
+  return null;
+}
 
-  // Match if we have significant blue colors matching our badge
-  // Either direct color matches OR general blue dominance
-  const hasColorMatch = (primaryRatio > 0.1 || secondaryRatio > 0.1);
-  const hasBluePresence = blueRatio > 0.3;
+// Get the dominant color channel for a color
+function getDominantChannel(rgb: { r: number; g: number; b: number }): 'r' | 'g' | 'b' {
+  if (rgb.r >= rgb.g && rgb.r >= rgb.b) return 'r';
+  if (rgb.g >= rgb.r && rgb.g >= rgb.b) return 'g';
+  return 'b';
+}
 
-  return hasColorMatch && hasBluePresence;
+// Check if a pixel has the same dominant channel
+function isDominantMatch(r: number, g: number, b: number, dominant: 'r' | 'g' | 'b'): boolean {
+  const threshold = 1.1; // 10% higher than others
+  switch (dominant) {
+    case 'r': return r > g * threshold && r > b * threshold && r > 50;
+    case 'g': return g > r * threshold && g > b * threshold && g > 50;
+    case 'b': return b > r * threshold && b > g * 0.9 && b > 50;
+  }
 }
 
 function extractParamsFromColors(

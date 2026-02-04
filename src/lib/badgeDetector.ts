@@ -1,46 +1,35 @@
 'use client';
 
 /**
- * Badge Detector - Uses computer vision to detect TrustCircle badges
- * Works offline after initial load using client-side image processing
+ * Badge Detector - Fast, stable detection for TrustCircle badges
+ * Optimized for quick detection (<5 seconds) with screen-displayed badges
  */
 
 interface DetectionResult {
   detected: boolean;
   centered: boolean;
-  tooFar: boolean;
-  tooClose: boolean;
-  blurry: boolean;
+  ready: boolean;
   guidance: string;
   confidence: number;
-  boundingBox?: { x: number; y: number; width: number; height: number };
 }
 
-interface ColorCluster {
-  r: number;
-  g: number;
-  b: number;
-  count: number;
-}
-
-// TrustCircle badge colors (the animated badge uses these)
-const BADGE_COLORS = {
-  primaryBlue: { r: 27, g: 54, b: 93 },    // #1B365D
-  secondaryBlue: { r: 74, g: 144, b: 217 }, // #4A90D9
-  white: { r: 255, g: 255, b: 255 },
-  // Gradient intermediate colors
-  midBlue1: { r: 40, g: 80, b: 130 },
-  midBlue2: { r: 55, g: 110, b: 170 },
-};
-
-// Tolerance for color matching (increased for better detection)
-const COLOR_TOLERANCE = 60;
+// TrustCircle badge color families
+const BADGE_COLORS = [
+  // Blue family (Briarwood, TrustCircle Demo)
+  { primary: { r: 27, g: 54, b: 93 }, secondary: { r: 74, g: 144, b: 217 }, name: 'blue' },
+  // Green family (Oak Ridge)
+  { primary: { r: 45, g: 80, b: 22 }, secondary: { r: 107, g: 142, b: 35 }, name: 'green' },
+  // Teal family (Riverside)
+  { primary: { r: 26, g: 77, b: 92 }, secondary: { r: 78, g: 205, b: 196 }, name: 'teal' },
+  // Orange family (Maplewood)
+  { primary: { r: 139, g: 69, b: 19 }, secondary: { r: 210, g: 105, b: 30 }, name: 'orange' },
+];
 
 export class BadgeDetector {
   private canvas: HTMLCanvasElement;
   private ctx: CanvasRenderingContext2D;
-  private lastFrameData: ImageData | null = null;
-  private frameHistory: number[] = [];
+  private stableFrames = 0;
+  private lastDetected = false;
 
   constructor() {
     this.canvas = document.createElement('canvas');
@@ -48,7 +37,7 @@ export class BadgeDetector {
   }
 
   /**
-   * Analyze a video frame for badge detection
+   * Fast badge detection - optimized for speed
    */
   detectBadge(video: HTMLVideoElement): DetectionResult {
     const width = video.videoWidth;
@@ -58,252 +47,119 @@ export class BadgeDetector {
       return {
         detected: false,
         centered: false,
-        tooFar: false,
-        tooClose: false,
-        blurry: true,
-        guidance: 'Initializing camera...',
+        ready: false,
+        guidance: 'Starting camera...',
         confidence: 0,
       };
     }
 
-    this.canvas.width = width;
-    this.canvas.height = height;
-    this.ctx.drawImage(video, 0, 0);
+    // Use smaller canvas for faster processing
+    const scale = 0.25;
+    const sw = Math.floor(width * scale);
+    const sh = Math.floor(height * scale);
 
-    const imageData = this.ctx.getImageData(0, 0, width, height);
+    this.canvas.width = sw;
+    this.canvas.height = sh;
+    this.ctx.drawImage(video, 0, 0, sw, sh);
 
-    // Check for motion blur
-    const isBlurry = this.detectBlur(imageData);
+    // Sample center region only (where badge should be)
+    const centerX = sw / 2;
+    const centerY = sh / 2;
+    const sampleSize = Math.min(sw, sh) * 0.4;
 
-    // Find circular badge-like regions with our colors
-    const badgeRegion = this.findBadgeRegion(imageData, width, height);
+    const startX = Math.floor(centerX - sampleSize / 2);
+    const startY = Math.floor(centerY - sampleSize / 2);
+    const regionSize = Math.floor(sampleSize);
 
-    if (!badgeRegion) {
-      return {
-        detected: false,
-        centered: false,
-        tooFar: false,
-        tooClose: false,
-        blurry: isBlurry,
-        guidance: 'Point camera at a TrustCircle badge',
-        confidence: 0,
-      };
+    const imageData = this.ctx.getImageData(startX, startY, regionSize, regionSize);
+    const data = imageData.data;
+
+    // Quick color analysis
+    let blueCount = 0;
+    let greenCount = 0;
+    let tealCount = 0;
+    let orangeCount = 0;
+    let totalSampled = 0;
+
+    // Sample every 4th pixel for speed
+    for (let i = 0; i < data.length; i += 16) {
+      const r = data[i];
+      const g = data[i + 1];
+      const b = data[i + 2];
+      totalSampled++;
+
+      // Blue detection (b dominant, not too bright)
+      if (b > r * 1.2 && b > g * 0.8 && b > 40 && b < 240) {
+        blueCount++;
+      }
+      // Green detection (g dominant)
+      if (g > r * 1.1 && g > b * 1.1 && g > 40 && g < 240) {
+        greenCount++;
+      }
+      // Teal detection (g and b both high, r low)
+      if (g > r * 1.3 && b > r * 1.3 && g > 60 && b > 60) {
+        tealCount++;
+      }
+      // Orange detection (r high, g medium, b low)
+      if (r > g * 1.1 && r > b * 2 && r > 80 && g > 40) {
+        orangeCount++;
+      }
     }
 
-    // Check if badge is centered
-    const centerX = width / 2;
-    const centerY = height / 2;
-    const badgeCenterX = badgeRegion.x + badgeRegion.width / 2;
-    const badgeCenterY = badgeRegion.y + badgeRegion.height / 2;
+    const blueRatio = blueCount / totalSampled;
+    const greenRatio = greenCount / totalSampled;
+    const tealRatio = tealCount / totalSampled;
+    const orangeRatio = orangeCount / totalSampled;
 
-    const offsetX = Math.abs(badgeCenterX - centerX) / width;
-    const offsetY = Math.abs(badgeCenterY - centerY) / height;
-    const isCentered = offsetX < 0.15 && offsetY < 0.15;
+    // Detect if any badge color family is present
+    const threshold = 0.15; // 15% of pixels need to match
+    const detected = blueRatio > threshold ||
+                     greenRatio > threshold ||
+                     tealRatio > threshold ||
+                     orangeRatio > threshold;
 
-    // Check size (too far = small, too close = large)
-    const badgeSize = Math.max(badgeRegion.width, badgeRegion.height);
-    const idealSize = Math.min(width, height) * 0.4;
-    const tooFar = badgeSize < idealSize * 0.5;
-    const tooClose = badgeSize > idealSize * 1.5;
+    // Calculate confidence
+    const maxRatio = Math.max(blueRatio, greenRatio, tealRatio, orangeRatio);
+    const confidence = Math.min(1, maxRatio * 3);
 
-    // Generate guidance
-    let guidance = '';
-    if (isBlurry) {
-      guidance = 'Hold steady...';
-    } else if (tooFar) {
-      guidance = 'Move closer';
-    } else if (tooClose) {
-      guidance = 'Move back';
-    } else if (!isCentered) {
-      if (badgeCenterX < centerX - width * 0.1) guidance = 'Move left';
-      else if (badgeCenterX > centerX + width * 0.1) guidance = 'Move right';
-      else if (badgeCenterY < centerY - height * 0.1) guidance = 'Move up';
-      else if (badgeCenterY > centerY + height * 0.1) guidance = 'Move down';
-      else guidance = 'Center the badge';
+    // Track stability
+    if (detected) {
+      if (this.lastDetected) {
+        this.stableFrames++;
+      } else {
+        this.stableFrames = 1;
+      }
     } else {
-      guidance = 'Perfect! Scanning...';
+      this.stableFrames = 0;
+    }
+    this.lastDetected = detected;
+
+    // Ready after just 5 stable frames (~0.5 seconds at 10fps)
+    const ready = this.stableFrames >= 5;
+
+    // Simple guidance
+    let guidance: string;
+    if (!detected) {
+      guidance = 'Point at a TrustCircle badge';
+    } else if (confidence < 0.3) {
+      guidance = 'Move closer';
+    } else if (ready) {
+      guidance = 'Verifying...';
+    } else {
+      guidance = 'Hold steady...';
     }
 
     return {
-      detected: true,
-      centered: isCentered,
-      tooFar,
-      tooClose,
-      blurry: isBlurry,
+      detected,
+      centered: detected && confidence > 0.25,
+      ready,
       guidance,
-      confidence: badgeRegion.confidence,
-      boundingBox: {
-        x: badgeRegion.x,
-        y: badgeRegion.y,
-        width: badgeRegion.width,
-        height: badgeRegion.height,
-      },
-    };
-  }
-
-  /**
-   * Detect motion blur by comparing frame differences
-   */
-  private detectBlur(imageData: ImageData): boolean {
-    const data = imageData.data;
-
-    // Calculate Laplacian variance (edge detection)
-    let variance = 0;
-    let count = 0;
-    const width = imageData.width;
-    const height = imageData.height;
-
-    // Sample center region
-    const startX = Math.floor(width * 0.3);
-    const endX = Math.floor(width * 0.7);
-    const startY = Math.floor(height * 0.3);
-    const endY = Math.floor(height * 0.7);
-
-    for (let y = startY + 1; y < endY - 1; y += 2) {
-      for (let x = startX + 1; x < endX - 1; x += 2) {
-        const idx = (y * width + x) * 4;
-        const gray = (data[idx] + data[idx + 1] + data[idx + 2]) / 3;
-
-        // Laplacian approximation
-        const top = ((data[((y - 1) * width + x) * 4] + data[((y - 1) * width + x) * 4 + 1] + data[((y - 1) * width + x) * 4 + 2]) / 3);
-        const bottom = ((data[((y + 1) * width + x) * 4] + data[((y + 1) * width + x) * 4 + 1] + data[((y + 1) * width + x) * 4 + 2]) / 3);
-        const left = ((data[(y * width + x - 1) * 4] + data[(y * width + x - 1) * 4 + 1] + data[(y * width + x - 1) * 4 + 2]) / 3);
-        const right = ((data[(y * width + x + 1) * 4] + data[(y * width + x + 1) * 4 + 1] + data[(y * width + x + 1) * 4 + 2]) / 3);
-
-        const laplacian = Math.abs(4 * gray - top - bottom - left - right);
-        variance += laplacian;
-        count++;
-      }
-    }
-
-    const avgVariance = variance / count;
-    this.frameHistory.push(avgVariance);
-    if (this.frameHistory.length > 10) this.frameHistory.shift();
-
-    // Low variance = blurry
-    return avgVariance < 8;
-  }
-
-  /**
-   * Find badge-colored circular region in image
-   */
-  private findBadgeRegion(
-    imageData: ImageData,
-    width: number,
-    height: number
-  ): { x: number; y: number; width: number; height: number; confidence: number } | null {
-    const data = imageData.data;
-
-    // Scan for badge colors in a grid
-    const gridSize = 20;
-    const matches: { x: number; y: number; score: number }[] = [];
-
-    for (let gy = 0; gy < height; gy += gridSize) {
-      for (let gx = 0; gx < width; gx += gridSize) {
-        let blueCount = 0;
-        let whiteCount = 0;
-        let totalPixels = 0;
-
-        // Sample pixels in this grid cell
-        for (let y = gy; y < Math.min(gy + gridSize, height); y += 2) {
-          for (let x = gx; x < Math.min(gx + gridSize, width); x += 2) {
-            const idx = (y * width + x) * 4;
-            const r = data[idx];
-            const g = data[idx + 1];
-            const b = data[idx + 2];
-
-            // Check for any badge blue colors
-            if (this.isColorMatch(r, g, b, BADGE_COLORS.primaryBlue) ||
-                this.isColorMatch(r, g, b, BADGE_COLORS.secondaryBlue) ||
-                this.isColorMatch(r, g, b, BADGE_COLORS.midBlue1) ||
-                this.isColorMatch(r, g, b, BADGE_COLORS.midBlue2) ||
-                this.isBlueish(r, g, b)) {
-              blueCount++;
-            }
-            if (this.isColorMatch(r, g, b, BADGE_COLORS.white)) {
-              whiteCount++;
-            }
-            totalPixels++;
-          }
-        }
-
-        const blueRatio = blueCount / totalPixels;
-        const whiteRatio = whiteCount / totalPixels;
-
-        // Badge has mix of blue and white
-        if (blueRatio > 0.15 || (blueRatio > 0.05 && whiteRatio > 0.1)) {
-          matches.push({ x: gx, y: gy, score: blueRatio + whiteRatio * 0.5 });
-        }
-      }
-    }
-
-    if (matches.length < 3) return null;
-
-    // Cluster nearby matches to find badge bounds
-    const sortedMatches = matches.sort((a, b) => b.score - a.score);
-    const topMatches = sortedMatches.slice(0, Math.min(50, sortedMatches.length));
-
-    if (topMatches.length === 0) return null;
-
-    // Find bounding box of matches
-    let minX = width, maxX = 0, minY = height, maxY = 0;
-    let totalScore = 0;
-
-    for (const match of topMatches) {
-      minX = Math.min(minX, match.x);
-      maxX = Math.max(maxX, match.x + gridSize);
-      minY = Math.min(minY, match.y);
-      maxY = Math.max(maxY, match.y + gridSize);
-      totalScore += match.score;
-    }
-
-    const regionWidth = maxX - minX;
-    const regionHeight = maxY - minY;
-
-    // Check if region is roughly circular (aspect ratio near 1)
-    const aspectRatio = regionWidth / regionHeight;
-    if (aspectRatio < 0.5 || aspectRatio > 2.0) return null;
-
-    // Check minimum size
-    if (regionWidth < 50 || regionHeight < 50) return null;
-
-    const confidence = Math.min(1, totalScore / topMatches.length * 2);
-
-    return {
-      x: minX,
-      y: minY,
-      width: regionWidth,
-      height: regionHeight,
       confidence,
     };
   }
 
   /**
-   * Check if a pixel color matches a target color
-   */
-  private isColorMatch(
-    r: number,
-    g: number,
-    b: number,
-    target: { r: number; g: number; b: number }
-  ): boolean {
-    return (
-      Math.abs(r - target.r) < COLOR_TOLERANCE &&
-      Math.abs(g - target.g) < COLOR_TOLERANCE &&
-      Math.abs(b - target.b) < COLOR_TOLERANCE
-    );
-  }
-
-  /**
-   * Check if a pixel is generally blue-ish (matches badge color family)
-   */
-  private isBlueish(r: number, g: number, b: number): boolean {
-    // Blue channel should be dominant
-    return b > r * 1.2 && b > g * 0.9 && b > 50;
-  }
-
-  /**
-   * Extract color signature for verification
+   * Extract color signature for API verification
    */
   extractColorSignature(video: HTMLVideoElement): number[] {
     const width = video.videoWidth;
@@ -319,91 +175,37 @@ export class BadgeDetector {
     const radius = Math.min(width, height) * 0.2;
 
     const imageData = this.ctx.getImageData(
-      centerX - radius,
-      centerY - radius,
-      radius * 2,
-      radius * 2
+      Math.floor(centerX - radius),
+      Math.floor(centerY - radius),
+      Math.floor(radius * 2),
+      Math.floor(radius * 2)
     );
 
-    // Get dominant colors
-    const clusters = this.kMeansClusters(imageData.data, 5);
-    return clusters.flatMap(c => [c.r, c.g, c.b]);
+    // Get color samples
+    const colors: number[] = [];
+    const data = imageData.data;
+
+    // Sample 20 pixels evenly distributed
+    const step = Math.floor(data.length / 80); // 20 pixels * 4 channels
+    for (let i = 0; i < data.length && colors.length < 60; i += step * 4) {
+      colors.push(data[i], data[i + 1], data[i + 2]);
+    }
+
+    return colors;
   }
 
-  /**
-   * Simple k-means color clustering
-   */
-  private kMeansClusters(data: Uint8ClampedArray, k: number): ColorCluster[] {
-    const colors: { r: number; g: number; b: number }[] = [];
-
-    // Sample pixels
-    for (let i = 0; i < data.length; i += 16) {
-      colors.push({
-        r: data[i],
-        g: data[i + 1],
-        b: data[i + 2],
-      });
-    }
-
-    // Initialize centroids randomly
-    const centroids: ColorCluster[] = [];
-    for (let i = 0; i < k; i++) {
-      const idx = Math.floor(Math.random() * colors.length);
-      centroids.push({ ...colors[idx], count: 0 });
-    }
-
-    // Run k-means iterations
-    for (let iter = 0; iter < 10; iter++) {
-      // Reset counts
-      centroids.forEach(c => {
-        c.r = 0;
-        c.g = 0;
-        c.b = 0;
-        c.count = 0;
-      });
-
-      // Assign colors to nearest centroid
-      for (const color of colors) {
-        let minDist = Infinity;
-        let nearest = centroids[0];
-
-        for (const centroid of centroids) {
-          const dist =
-            Math.abs(color.r - centroid.r) +
-            Math.abs(color.g - centroid.g) +
-            Math.abs(color.b - centroid.b);
-          if (dist < minDist) {
-            minDist = dist;
-            nearest = centroid;
-          }
-        }
-
-        nearest.r += color.r;
-        nearest.g += color.g;
-        nearest.b += color.b;
-        nearest.count++;
-      }
-
-      // Update centroids
-      for (const centroid of centroids) {
-        if (centroid.count > 0) {
-          centroid.r = Math.round(centroid.r / centroid.count);
-          centroid.g = Math.round(centroid.g / centroid.count);
-          centroid.b = Math.round(centroid.b / centroid.count);
-        }
-      }
-    }
-
-    return centroids.sort((a, b) => b.count - a.count);
+  reset() {
+    this.stableFrames = 0;
+    this.lastDetected = false;
   }
 }
 
-// Singleton instance
-let detectorInstance: BadgeDetector | null = null;
+// Singleton
+let instance: BadgeDetector | null = null;
 
 export function getBadgeDetector(): BadgeDetector {
-  if (!detectorInstance) {
-    detectorInstance = new BadgeDetector();
+  if (!instance) {
+    instance = new BadgeDetector();
   }
-  return detectorInstance;
+  return instance;
 }

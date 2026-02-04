@@ -12,11 +12,17 @@ export default function Scanner({ onResult, onCancel }: ScannerProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const [isScanning, setIsScanning] = useState(false);
-  const [cameraError, setCameraError] = useState<'denied' | 'notfound' | 'error' | null>(null);
+  const [cameraError, setCameraError] = useState<'denied' | 'notfound' | 'notsecure' | 'error' | null>(null);
   const analysisRef = useRef<number>(0);
 
   const startCamera = useCallback(async () => {
     setCameraError(null);
+
+    // Check if mediaDevices API is available (requires HTTPS or localhost)
+    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+      setCameraError('notsecure');
+      return;
+    }
 
     try {
       const stream = await navigator.mediaDevices.getUserMedia({
@@ -170,12 +176,14 @@ export default function Scanner({ onResult, onCancel }: ScannerProps) {
             <h2 className="text-2xl font-bold text-neutral-900 mb-2">
               {cameraError === 'denied' && 'Camera Access Denied'}
               {cameraError === 'notfound' && 'No Camera Found'}
+              {cameraError === 'notsecure' && 'Secure Connection Required'}
               {cameraError === 'error' && 'Camera Error'}
             </h2>
 
             <p className="text-neutral-500 mb-6">
               {cameraError === 'denied' && 'Allow camera access in your browser or device settings, then tap Try Again.'}
               {cameraError === 'notfound' && 'No camera was found on this device.'}
+              {cameraError === 'notsecure' && 'Camera access requires a secure (HTTPS) connection. Please access this site via HTTPS.'}
               {cameraError === 'error' && 'Something went wrong accessing the camera.'}
             </p>
 
@@ -184,6 +192,13 @@ export default function Scanner({ onResult, onCancel }: ScannerProps) {
                 <p className="font-medium text-neutral-900 mb-2">On iPhone Safari:</p>
                 <p>Settings → Safari → Camera → Allow</p>
                 <p className="mt-2 text-xs text-neutral-500">Then come back and tap Try Again</p>
+              </div>
+            )}
+
+            {cameraError === 'notsecure' && (
+              <div className="bg-neutral-100 rounded-xl p-4 mb-6 text-left text-sm text-neutral-600">
+                <p className="font-medium text-neutral-900 mb-2">Why this happens:</p>
+                <p>Browsers only allow camera access on secure (HTTPS) pages to protect your privacy.</p>
               </div>
             )}
 

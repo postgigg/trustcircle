@@ -30,8 +30,28 @@ export default function Scanner({ onResult, onCancel }: ScannerProps) {
           facingMode: 'environment',
           width: { ideal: 1280 },
           height: { ideal: 720 },
+          // @ts-expect-error - focusMode is valid but not in TS types
+          focusMode: 'continuous',
+          // @ts-expect-error - focusDistance for close-up scanning
+          focusDistance: 0.3,
         },
       });
+
+      // Try to enable continuous autofocus on the track
+      const videoTrack = stream.getVideoTracks()[0];
+      if (videoTrack) {
+        try {
+          const capabilities = videoTrack.getCapabilities?.() as MediaTrackCapabilities & { focusMode?: string[] };
+          if (capabilities?.focusMode?.includes('continuous')) {
+            await videoTrack.applyConstraints({
+              // @ts-expect-error - advanced focus constraints
+              advanced: [{ focusMode: 'continuous' }],
+            });
+          }
+        } catch {
+          // Autofocus not supported, continue anyway
+        }
+      }
 
       streamRef.current = stream;
 

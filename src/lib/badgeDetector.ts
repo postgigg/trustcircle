@@ -28,10 +28,13 @@ const BADGE_COLORS = {
   primaryBlue: { r: 27, g: 54, b: 93 },    // #1B365D
   secondaryBlue: { r: 74, g: 144, b: 217 }, // #4A90D9
   white: { r: 255, g: 255, b: 255 },
+  // Gradient intermediate colors
+  midBlue1: { r: 40, g: 80, b: 130 },
+  midBlue2: { r: 55, g: 110, b: 170 },
 };
 
-// Tolerance for color matching
-const COLOR_TOLERANCE = 45;
+// Tolerance for color matching (increased for better detection)
+const COLOR_TOLERANCE = 60;
 
 export class BadgeDetector {
   private canvas: HTMLCanvasElement;
@@ -209,8 +212,12 @@ export class BadgeDetector {
             const g = data[idx + 1];
             const b = data[idx + 2];
 
+            // Check for any badge blue colors
             if (this.isColorMatch(r, g, b, BADGE_COLORS.primaryBlue) ||
-                this.isColorMatch(r, g, b, BADGE_COLORS.secondaryBlue)) {
+                this.isColorMatch(r, g, b, BADGE_COLORS.secondaryBlue) ||
+                this.isColorMatch(r, g, b, BADGE_COLORS.midBlue1) ||
+                this.isColorMatch(r, g, b, BADGE_COLORS.midBlue2) ||
+                this.isBlueish(r, g, b)) {
               blueCount++;
             }
             if (this.isColorMatch(r, g, b, BADGE_COLORS.white)) {
@@ -285,6 +292,14 @@ export class BadgeDetector {
       Math.abs(g - target.g) < COLOR_TOLERANCE &&
       Math.abs(b - target.b) < COLOR_TOLERANCE
     );
+  }
+
+  /**
+   * Check if a pixel is generally blue-ish (matches badge color family)
+   */
+  private isBlueish(r: number, g: number, b: number): boolean {
+    // Blue channel should be dominant
+    return b > r * 1.2 && b > g * 0.9 && b > 50;
   }
 
   /**

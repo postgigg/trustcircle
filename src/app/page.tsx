@@ -442,6 +442,11 @@ export default function Home() {
                         </div>
 
                       </div>
+
+                      {/* Try scanning hint */}
+                      <p className="text-center text-xs text-neutral-400 mt-3">
+                        This is a real badge — try scanning it with another phone
+                      </p>
                     </div>
                   )}
 

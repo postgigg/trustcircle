@@ -401,50 +401,52 @@ export default function Home() {
                       </div>
                     </div>
                   ) : (
-                    <div className="relative flex justify-center mb-8">
-                      <div className="relative">
-                        {/* Ambient glow */}
-                        <div
-                          className="absolute inset-0 -m-8 rounded-full opacity-30 blur-3xl"
-                          style={{
-                            background: 'radial-gradient(ellipse at center, #4A90D950 0%, transparent 70%)',
-                          }}
-                        />
+                    <div className="flex flex-col items-center mb-8">
+                      <div className="relative flex justify-center">
+                        <div className="relative">
+                          {/* Ambient glow */}
+                          <div
+                            className="absolute inset-0 -m-8 rounded-full opacity-30 blur-3xl"
+                            style={{
+                              background: 'radial-gradient(ellipse at center, #4A90D950 0%, transparent 70%)',
+                            }}
+                          />
 
-                        {/* iPhone 15 Pro: 146.6 x 70.6mm = 2.077:1 - using 150w x 312h */}
-                        <div className="relative" style={{ width: '150px', height: '312px' }}>
-                          {/* Titanium frame */}
-                          <div className="absolute inset-0 bg-[#1a1a1a] rounded-[32px] shadow-2xl" />
-                          {/* Inner bezel */}
-                          <div className="absolute inset-[2px] bg-black rounded-[30px]" />
-                          {/* Screen */}
-                          <div className="absolute inset-[4px] bg-[#fafaf9] rounded-[28px] overflow-hidden flex flex-col">
-                            {/* Dynamic island */}
-                            <div className="flex justify-center pt-2.5">
-                              <div className="w-[72px] h-[22px] bg-black rounded-full" />
-                            </div>
+                          {/* iPhone 15 Pro: 146.6 x 70.6mm = 2.077:1 - using 150w x 312h */}
+                          <div className="relative" style={{ width: '150px', height: '312px' }}>
+                            {/* Titanium frame */}
+                            <div className="absolute inset-0 bg-[#1a1a1a] rounded-[32px] shadow-2xl" />
+                            {/* Inner bezel */}
+                            <div className="absolute inset-[2px] bg-black rounded-[30px]" />
+                            {/* Screen */}
+                            <div className="absolute inset-[4px] bg-[#fafaf9] rounded-[28px] overflow-hidden flex flex-col">
+                              {/* Dynamic island */}
+                              <div className="flex justify-center pt-2.5">
+                                <div className="w-[72px] h-[22px] bg-black rounded-full" />
+                              </div>
 
-                            {/* Badge content */}
-                            <div className="flex-1 flex items-center justify-center px-2 -mt-2">
-                              <DemoBadge
-                                size={120}
-                                pattern="wave"
-                                primaryColor="#1B365D"
-                                secondaryColor="#4A90D9"
-                              />
-                            </div>
+                              {/* Badge content */}
+                              <div className="flex-1 flex items-center justify-center px-2 -mt-2">
+                                <DemoBadge
+                                  size={120}
+                                  pattern="wave"
+                                  primaryColor="#1B365D"
+                                  secondaryColor="#4A90D9"
+                                />
+                              </div>
 
-                            {/* Home indicator */}
-                            <div className="pb-1.5 flex justify-center">
-                              <div className="w-[84px] h-[4px] bg-black rounded-full" />
+                              {/* Home indicator */}
+                              <div className="pb-1.5 flex justify-center">
+                                <div className="w-[84px] h-[4px] bg-black rounded-full" />
+                              </div>
                             </div>
                           </div>
-                        </div>
 
+                        </div>
                       </div>
 
-                      {/* Try scanning hint */}
-                      <p className="text-center text-xs text-neutral-400 mt-3">
+                      {/* Try scanning hint - below phone on mobile/tablet */}
+                      <p className="text-center text-xs text-neutral-400 mt-4">
                         This is a real badge — try scanning it with another phone
                       </p>
                     </div>

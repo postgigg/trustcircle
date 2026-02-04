@@ -1,26 +1,47 @@
 'use client';
 
 import { useEffect, useRef, useState, useCallback } from 'react';
+import { getBadgeDetector } from '@/lib/badgeDetector';
 
 interface ScannerProps {
   onResult: (success: boolean, zoneName?: string) => void;
   onCancel: () => void;
 }
 
+interface DetectionState {
+  detected: boolean;
+  centered: boolean;
+  tooFar: boolean;
+  tooClose: boolean;
+  blurry: boolean;
+  guidance: string;
+  confidence: number;
+  boundingBox?: { x: number; y: number; width: number; height: number };
+}
+
 export default function Scanner({ onResult, onCancel }: ScannerProps) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
+  const overlayRef = useRef<HTMLCanvasElement>(null);
   const streamRef = useRef<MediaStream | null>(null);
-  const trackRef = useRef<MediaStreamTrack | null>(null);
+  const detectorRef = useRef<ReturnType<typeof getBadgeDetector> | null>(null);
   const [isScanning, setIsScanning] = useState(false);
-  const [showTapHint, setShowTapHint] = useState(true);
   const [cameraError, setCameraError] = useState<'denied' | 'notfound' | 'notsecure' | 'error' | null>(null);
-  const analysisRef = useRef<number>(0);
+  const [detection, setDetection] = useState<DetectionState>({
+    detected: false,
+    centered: false,
+    tooFar: false,
+    tooClose: false,
+    blurry: false,
+    guidance: 'Initializing...',
+    confidence: 0,
+  });
+  const [readyFrames, setReadyFrames] = useState(0);
+  const animationRef = useRef<number>(0);
 
   const startCamera = useCallback(async () => {
     setCameraError(null);
 
-    // Check if mediaDevices API is available (requires HTTPS or localhost)
     if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
       setCameraError('notsecure');
       return;
@@ -35,29 +56,48 @@ export default function Scanner({ onResult, onCancel }: ScannerProps) {
         },
       });
 
-      // Store track reference for tap-to-focus
-      const videoTrack = stream.getVideoTracks()[0];
-      trackRef.current = videoTrack;
-
       streamRef.current = stream;
 
       if (videoRef.current) {
         videoRef.current.srcObject = stream;
         await videoRef.current.play();
         setIsScanning(true);
+
+        // Initialize detector
+        detectorRef.current = getBadgeDetector();
       }
     } catch (err) {
-      console.error('Camera error:', err);
-      if (err instanceof Error) {
-        if (err.name === 'NotAllowedError' || err.name === 'PermissionDeniedError') {
-          setCameraError('denied');
-        } else if (err.name === 'NotFoundError' || err.name === 'DevicesNotFoundError') {
-          setCameraError('notfound');
+      // Try again without exact facingMode
+      try {
+        const stream = await navigator.mediaDevices.getUserMedia({
+          video: {
+            facingMode: 'environment',
+            width: { ideal: 1280 },
+            height: { ideal: 720 },
+          },
+        });
+
+        streamRef.current = stream;
+
+        if (videoRef.current) {
+          videoRef.current.srcObject = stream;
+          await videoRef.current.play();
+          setIsScanning(true);
+          detectorRef.current = getBadgeDetector();
+        }
+      } catch (err2) {
+        console.error('Camera error:', err2);
+        if (err2 instanceof Error) {
+          if (err2.name === 'NotAllowedError' || err2.name === 'PermissionDeniedError') {
+            setCameraError('denied');
+          } else if (err2.name === 'NotFoundError' || err2.name === 'DevicesNotFoundError') {
+            setCameraError('notfound');
+          } else {
+            setCameraError('error');
+          }
         } else {
           setCameraError('error');
         }
-      } else {
-        setCameraError('error');
       }
     }
   }, []);
@@ -67,78 +107,149 @@ export default function Scanner({ onResult, onCancel }: ScannerProps) {
       streamRef.current.getTracks().forEach((track) => track.stop());
       streamRef.current = null;
     }
-    if (analysisRef.current) {
-      cancelAnimationFrame(analysisRef.current);
+    if (animationRef.current) {
+      cancelAnimationFrame(animationRef.current);
     }
     setIsScanning(false);
   }, []);
 
-  // Start camera immediately on mount
   useEffect(() => {
     startCamera();
     return () => stopCamera();
   }, [startCamera, stopCamera]);
 
-  const analyzeFrame = useCallback(async () => {
-    if (!videoRef.current || !canvasRef.current || !isScanning) return;
+  // Real-time detection loop
+  useEffect(() => {
+    if (!isScanning || !detectorRef.current) return;
 
-    const video = videoRef.current;
-    const canvas = canvasRef.current;
-    const ctx = canvas.getContext('2d');
+    let frameCount = 0;
 
-    if (!ctx) return;
+    const detectFrame = async () => {
+      if (!videoRef.current || !detectorRef.current) return;
 
-    canvas.width = video.videoWidth;
-    canvas.height = video.videoHeight;
-    ctx.drawImage(video, 0, 0);
+      const result = detectorRef.current.detectBadge(videoRef.current);
+      setDetection(result);
 
-    const centerX = canvas.width / 2;
-    const centerY = canvas.height / 2;
-    const sampleRadius = 100;
+      // Draw overlay
+      if (overlayRef.current && videoRef.current) {
+        const overlay = overlayRef.current;
+        const video = videoRef.current;
+        overlay.width = video.clientWidth;
+        overlay.height = video.clientHeight;
+        const ctx = overlay.getContext('2d');
 
-    const imageData = ctx.getImageData(
-      centerX - sampleRadius,
-      centerY - sampleRadius,
-      sampleRadius * 2,
-      sampleRadius * 2
-    );
+        if (ctx) {
+          ctx.clearRect(0, 0, overlay.width, overlay.height);
 
-    const analysis = analyzeColors(imageData);
+          if (result.boundingBox) {
+            // Scale bounding box to overlay size
+            const scaleX = overlay.width / video.videoWidth;
+            const scaleY = overlay.height / video.videoHeight;
 
-    if (analysis.isBadgeDetected) {
-      try {
-        const response = await fetch('/api/verify/check', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            colorSignature: analysis.colorSignature,
-            timestamp: Date.now(),
-          }),
-        });
+            const x = result.boundingBox.x * scaleX;
+            const y = result.boundingBox.y * scaleY;
+            const w = result.boundingBox.width * scaleX;
+            const h = result.boundingBox.height * scaleY;
 
-        const result = await response.json();
+            // Draw detection box
+            ctx.strokeStyle = result.centered && !result.blurry ? '#2ECC71' : '#4A90D9';
+            ctx.lineWidth = 3;
+            ctx.setLineDash([10, 5]);
+            ctx.strokeRect(x, y, w, h);
 
-        if (result.verified) {
-          stopCamera();
-          onResult(true, result.zoneName);
+            // Draw corner brackets
+            const bracketSize = 20;
+            ctx.setLineDash([]);
+            ctx.lineWidth = 4;
+            ctx.strokeStyle = result.centered && !result.blurry ? '#2ECC71' : '#4A90D9';
+
+            // Top-left
+            ctx.beginPath();
+            ctx.moveTo(x, y + bracketSize);
+            ctx.lineTo(x, y);
+            ctx.lineTo(x + bracketSize, y);
+            ctx.stroke();
+
+            // Top-right
+            ctx.beginPath();
+            ctx.moveTo(x + w - bracketSize, y);
+            ctx.lineTo(x + w, y);
+            ctx.lineTo(x + w, y + bracketSize);
+            ctx.stroke();
+
+            // Bottom-left
+            ctx.beginPath();
+            ctx.moveTo(x, y + h - bracketSize);
+            ctx.lineTo(x, y + h);
+            ctx.lineTo(x + bracketSize, y + h);
+            ctx.stroke();
+
+            // Bottom-right
+            ctx.beginPath();
+            ctx.moveTo(x + w - bracketSize, y + h);
+            ctx.lineTo(x + w, y + h);
+            ctx.lineTo(x + w, y + h - bracketSize);
+            ctx.stroke();
+          }
+        }
+      }
+
+      // Check if ready to verify (badge centered, not blurry, for several frames)
+      if (result.detected && result.centered && !result.blurry && !result.tooFar && !result.tooClose) {
+        frameCount++;
+        setReadyFrames(frameCount);
+
+        if (frameCount >= 15) {
+          // Auto-verify after holding steady
+          await verifyBadge();
           return;
         }
-      } catch {
-        // Continue scanning
+      } else {
+        frameCount = 0;
+        setReadyFrames(0);
       }
-    }
 
-    analysisRef.current = requestAnimationFrame(analyzeFrame);
-  }, [isScanning, onResult, stopCamera]);
+      animationRef.current = requestAnimationFrame(detectFrame);
+    };
 
-  useEffect(() => {
-    if (isScanning) {
-      const interval = setInterval(() => {
-        analyzeFrame();
-      }, 100);
-      return () => clearInterval(interval);
+    animationRef.current = requestAnimationFrame(detectFrame);
+
+    return () => {
+      if (animationRef.current) {
+        cancelAnimationFrame(animationRef.current);
+      }
+    };
+  }, [isScanning]);
+
+  const verifyBadge = async () => {
+    if (!videoRef.current || !detectorRef.current) return;
+
+    const colorSignature = detectorRef.current.extractColorSignature(videoRef.current);
+
+    try {
+      const response = await fetch('/api/verify/check', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          colorSignature,
+          timestamp: Date.now(),
+        }),
+      });
+
+      const result = await response.json();
+
+      if (result.verified) {
+        stopCamera();
+        onResult(true, result.zoneName);
+      } else {
+        // Keep scanning
+        setReadyFrames(0);
+      }
+    } catch {
+      // Keep scanning on error
+      setReadyFrames(0);
     }
-  }, [isScanning, analyzeFrame]);
+  };
 
   const handleManualCheck = async () => {
     stopCamera();
@@ -150,53 +261,7 @@ export default function Scanner({ onResult, onCancel }: ScannerProps) {
     startCamera();
   };
 
-  // Tap to focus - triggers autofocus at tap point
-  const handleTapToFocus = async (e: React.TouchEvent | React.MouseEvent) => {
-    setShowTapHint(false);
-
-    if (!trackRef.current || !videoRef.current) return;
-
-    const video = videoRef.current;
-    const rect = video.getBoundingClientRect();
-
-    // Get tap coordinates as percentage of video
-    const clientX = 'touches' in e ? e.touches[0].clientX : e.clientX;
-    const clientY = 'touches' in e ? e.touches[0].clientY : e.clientY;
-    const x = (clientX - rect.left) / rect.width;
-    const y = (clientY - rect.top) / rect.height;
-
-    try {
-      // Try to set focus point (works on some devices)
-      const capabilities = trackRef.current.getCapabilities?.() as MediaTrackCapabilities & {
-        focusMode?: string[];
-        pointsOfInterest?: boolean;
-      };
-
-      const constraints: MediaTrackConstraints & {
-        advanced?: Array<{ focusMode?: string; pointsOfInterest?: Array<{x: number; y: number}> }>
-      } = {};
-
-      if (capabilities?.focusMode?.includes('single-shot')) {
-        constraints.advanced = [{ focusMode: 'single-shot' }];
-      } else if (capabilities?.focusMode?.includes('continuous')) {
-        constraints.advanced = [{ focusMode: 'continuous' }];
-      }
-
-      // Some browsers support pointsOfInterest for tap-to-focus
-      if (capabilities?.pointsOfInterest) {
-        constraints.advanced = constraints.advanced || [];
-        constraints.advanced.push({ pointsOfInterest: [{ x, y }] });
-      }
-
-      if (constraints.advanced) {
-        await trackRef.current.applyConstraints(constraints);
-      }
-    } catch {
-      // Focus not supported, that's ok
-    }
-  };
-
-  // Show error screen if camera access failed
+  // Error screen
   if (cameraError) {
     return (
       <div className="fixed inset-0 min-h-[100dvh] bg-[#fafaf9] flex flex-col">
@@ -235,7 +300,7 @@ export default function Scanner({ onResult, onCancel }: ScannerProps) {
             <p className="text-neutral-500 mb-6">
               {cameraError === 'denied' && 'Allow camera access in your browser or device settings, then tap Try Again.'}
               {cameraError === 'notfound' && 'No camera was found on this device.'}
-              {cameraError === 'notsecure' && 'Camera access requires a secure (HTTPS) connection. Please access this site via HTTPS.'}
+              {cameraError === 'notsecure' && 'Camera access requires a secure (HTTPS) connection.'}
               {cameraError === 'error' && 'Something went wrong accessing the camera.'}
             </p>
 
@@ -244,13 +309,6 @@ export default function Scanner({ onResult, onCancel }: ScannerProps) {
                 <p className="font-medium text-neutral-900 mb-2">On iPhone Safari:</p>
                 <p>Settings → Safari → Camera → Allow</p>
                 <p className="mt-2 text-xs text-neutral-500">Then come back and tap Try Again</p>
-              </div>
-            )}
-
-            {cameraError === 'notsecure' && (
-              <div className="bg-neutral-100 rounded-xl p-4 mb-6 text-left text-sm text-neutral-600">
-                <p className="font-medium text-neutral-900 mb-2">Why this happens:</p>
-                <p>Browsers only allow camera access on secure (HTTPS) pages to protect your privacy.</p>
               </div>
             )}
 
@@ -272,9 +330,12 @@ export default function Scanner({ onResult, onCancel }: ScannerProps) {
     );
   }
 
+  // Progress bar percentage
+  const progressPercent = Math.min(100, (readyFrames / 15) * 100);
+
   return (
     <div className="fixed inset-0 bg-black flex flex-col">
-      <div className="relative flex-1" onClick={handleTapToFocus} onTouchStart={handleTapToFocus}>
+      <div className="relative flex-1">
         <video
           ref={videoRef}
           autoPlay
@@ -283,60 +344,147 @@ export default function Scanner({ onResult, onCancel }: ScannerProps) {
           className="w-full h-full object-cover"
         />
 
+        {/* Detection overlay canvas */}
+        <canvas
+          ref={overlayRef}
+          className="absolute inset-0 w-full h-full pointer-events-none"
+        />
+
         <canvas ref={canvasRef} className="hidden" />
 
-        {/* Scanning Overlay */}
-        <div className="absolute inset-0 flex items-center justify-center">
-          <div className="absolute inset-0 bg-black/40" />
+        {/* Semi-transparent overlay */}
+        <div className="absolute inset-0 pointer-events-none">
+          {/* Dark edges */}
+          <div className="absolute inset-0 bg-gradient-to-b from-black/60 via-transparent to-black/60" />
+        </div>
 
-          <div className="relative z-10">
-            <div className="w-72 h-72 rounded-full border-4 border-white/30 flex items-center justify-center">
-              <div className="absolute w-72 h-72 rounded-full border-4 border-transparent border-t-[#4A90D9] animate-spin" style={{ animationDuration: '2s' }} />
-              <div className="w-56 h-56 rounded-full border-2 border-white/20 flex items-center justify-center">
-                <div className="w-40 h-40 rounded-full border border-dashed border-white/30 animate-pulse" />
-              </div>
-            </div>
-
-            <div className="absolute -top-2 -left-2 w-10 h-10 border-t-4 border-l-4 border-[#4A90D9] rounded-tl-2xl" />
-            <div className="absolute -top-2 -right-2 w-10 h-10 border-t-4 border-r-4 border-[#4A90D9] rounded-tr-2xl" />
-            <div className="absolute -bottom-2 -left-2 w-10 h-10 border-b-4 border-l-4 border-[#4A90D9] rounded-bl-2xl" />
-            <div className="absolute -bottom-2 -right-2 w-10 h-10 border-b-4 border-r-4 border-[#4A90D9] rounded-br-2xl" />
+        {/* Center target circle */}
+        <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+          <div className={`w-64 h-64 rounded-full border-4 transition-colors duration-300 ${
+            detection.detected && detection.centered && !detection.blurry
+              ? 'border-[#2ECC71]'
+              : detection.detected
+                ? 'border-[#4A90D9]'
+                : 'border-white/30'
+          }`}>
+            {/* Scanning animation */}
+            {detection.detected && (
+              <div
+                className="absolute inset-0 rounded-full border-4 border-transparent animate-spin"
+                style={{
+                  borderTopColor: detection.centered ? '#2ECC71' : '#4A90D9',
+                  animationDuration: '1.5s',
+                }}
+              />
+            )}
           </div>
         </div>
 
-        {/* Top bar */}
+        {/* Top bar with guidance */}
         <div className="absolute top-0 left-0 right-0 pt-safe">
           <div className="p-6 bg-gradient-to-b from-black/80 to-transparent">
-            <div className="flex items-center justify-center gap-3">
-              <div className="w-10 h-10 rounded-full bg-white/10 backdrop-blur-sm flex items-center justify-center">
-                <svg className="w-5 h-5 text-white" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                  <circle cx="12" cy="12" r="9" />
-                  <circle cx="12" cy="12" r="5" />
-                </svg>
+            <div className="flex flex-col items-center">
+              <div className={`px-5 py-2.5 rounded-full backdrop-blur-md transition-colors duration-300 ${
+                detection.detected && detection.centered && !detection.blurry
+                  ? 'bg-[#2ECC71]/90'
+                  : detection.detected
+                    ? 'bg-[#4A90D9]/90'
+                    : 'bg-white/20'
+              }`}>
+                <p className="text-white font-semibold text-center">
+                  {detection.guidance}
+                </p>
               </div>
-              <div>
-                <p className="text-white font-semibold">Scan Badge</p>
-                <p className="text-white/60 text-sm">Point at a TrustCircle badge</p>
-              </div>
+
+              {/* Confidence indicator */}
+              {detection.detected && (
+                <div className="mt-3 flex items-center gap-2">
+                  <div className="h-1.5 w-24 bg-white/20 rounded-full overflow-hidden">
+                    <div
+                      className="h-full bg-white/80 rounded-full transition-all duration-300"
+                      style={{ width: `${detection.confidence * 100}%` }}
+                    />
+                  </div>
+                  <span className="text-white/60 text-xs">
+                    {Math.round(detection.confidence * 100)}%
+                  </span>
+                </div>
+              )}
             </div>
           </div>
         </div>
 
-        {/* Scanning indicator */}
-        {isScanning && (
-          <div className="absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 mt-44">
-            <div className="bg-white/10 backdrop-blur-md rounded-full px-4 py-2 flex items-center gap-2">
-              <div className="w-2 h-2 rounded-full bg-[#4A90D9] animate-pulse" />
-              <span className="text-white text-sm font-medium">Scanning...</span>
+        {/* Progress bar when ready */}
+        {readyFrames > 0 && (
+          <div className="absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 mt-40">
+            <div className="bg-black/70 backdrop-blur-md rounded-2xl px-6 py-4 flex flex-col items-center">
+              <div className="flex items-center gap-2 mb-2">
+                <div className="w-2 h-2 rounded-full bg-[#2ECC71] animate-pulse" />
+                <span className="text-white font-medium">Hold steady...</span>
+              </div>
+              <div className="h-2 w-40 bg-white/20 rounded-full overflow-hidden">
+                <div
+                  className="h-full bg-[#2ECC71] rounded-full transition-all duration-100"
+                  style={{ width: `${progressPercent}%` }}
+                />
+              </div>
             </div>
           </div>
         )}
 
-        {/* Tap to focus hint */}
-        {showTapHint && isScanning && (
-          <div className="absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 mt-56 animate-pulse">
-            <div className="bg-black/60 backdrop-blur-sm rounded-full px-4 py-2">
-              <span className="text-white text-sm font-medium">Tap screen to focus</span>
+        {/* Direction indicators */}
+        {detection.detected && !detection.centered && (
+          <>
+            {detection.guidance === 'Move left' && (
+              <div className="absolute left-4 top-1/2 -translate-y-1/2 animate-pulse">
+                <svg className="w-12 h-12 text-[#4A90D9]" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M15 19l-7-7 7-7" />
+                </svg>
+              </div>
+            )}
+            {detection.guidance === 'Move right' && (
+              <div className="absolute right-4 top-1/2 -translate-y-1/2 animate-pulse">
+                <svg className="w-12 h-12 text-[#4A90D9]" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
+                </svg>
+              </div>
+            )}
+            {detection.guidance === 'Move up' && (
+              <div className="absolute top-28 left-1/2 -translate-x-1/2 animate-pulse">
+                <svg className="w-12 h-12 text-[#4A90D9]" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M5 15l7-7 7 7" />
+                </svg>
+              </div>
+            )}
+            {detection.guidance === 'Move down' && (
+              <div className="absolute bottom-40 left-1/2 -translate-x-1/2 animate-pulse">
+                <svg className="w-12 h-12 text-[#4A90D9]" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
+                </svg>
+              </div>
+            )}
+          </>
+        )}
+
+        {/* Distance indicators */}
+        {detection.tooFar && (
+          <div className="absolute bottom-48 left-1/2 -translate-x-1/2 animate-bounce">
+            <div className="bg-[#4A90D9]/90 backdrop-blur-sm rounded-full px-4 py-2 flex items-center gap-2">
+              <svg className="w-5 h-5 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0zM10 7v3m0 0v3m0-3h3m-3 0H7" />
+              </svg>
+              <span className="text-white font-medium">Move closer</span>
+            </div>
+          </div>
+        )}
+
+        {detection.tooClose && (
+          <div className="absolute bottom-48 left-1/2 -translate-x-1/2 animate-bounce">
+            <div className="bg-[#4A90D9]/90 backdrop-blur-sm rounded-full px-4 py-2 flex items-center gap-2">
+              <svg className="w-5 h-5 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0zM13 10H7" />
+              </svg>
+              <span className="text-white font-medium">Move back</span>
             </div>
           </div>
         )}
@@ -366,61 +514,4 @@ export default function Scanner({ onResult, onCancel }: ScannerProps) {
       </div>
     </div>
   );
-}
-
-function analyzeColors(imageData: ImageData): {
-  isBadgeDetected: boolean;
-  colorSignature: number[];
-} {
-  const data = imageData.data;
-  const width = imageData.width;
-  const height = imageData.height;
-
-  const colorBuckets: { [key: string]: number } = {};
-
-  for (let i = 0; i < data.length; i += 4) {
-    const r = Math.floor(data[i] / 32) * 32;
-    const g = Math.floor(data[i + 1] / 32) * 32;
-    const b = Math.floor(data[i + 2] / 32) * 32;
-    const key = `${r},${g},${b}`;
-    colorBuckets[key] = (colorBuckets[key] || 0) + 1;
-  }
-
-  const sortedColors = Object.entries(colorBuckets)
-    .sort(([, a], [, b]) => b - a)
-    .slice(0, 5);
-
-  const dominantColors = sortedColors.map(([color]) =>
-    color.split(',').map(Number)
-  );
-
-  const hasPrimaryBlue = dominantColors.some(([r, g, b]) =>
-    b > r && b > g && b > 100
-  );
-
-  const hasGreen = dominantColors.some(([r, g, b]) =>
-    g > r && g > b && g > 100
-  );
-
-  const hasOrangeYellow = dominantColors.some(([r, g, b]) =>
-    r > 150 && g > 100 && b < 100
-  );
-
-  const hasStructuredPattern = dominantColors.length >= 3;
-
-  const centerPixels: number[] = [];
-  const cx = Math.floor(width / 2);
-  const cy = Math.floor(height / 2);
-  for (let y = cy - 10; y < cy + 10; y++) {
-    for (let x = cx - 10; x < cx + 10; x++) {
-      const i = (y * width + x) * 4;
-      centerPixels.push(data[i], data[i + 1], data[i + 2]);
-    }
-  }
-
-  const isBadgeDetected = (hasPrimaryBlue || hasOrangeYellow || hasGreen) && hasStructuredPattern;
-
-  const colorSignature = dominantColors.flat();
-
-  return { isBadgeDetected, colorSignature };
 }

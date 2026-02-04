@@ -1,59 +1,42 @@
 'use client';
 
 /**
- * Badge Detector - Fast, stable detection for TrustCircle badges
- * Optimized for quick detection (<5 seconds) with screen-displayed badges
+ * Badge Detector - Detects TrustCircle badges by looking for
+ * the specific animated pattern with our exact colors
  */
 
 interface DetectionResult {
   detected: boolean;
-  centered: boolean;
   ready: boolean;
   guidance: string;
   confidence: number;
 }
 
-// TrustCircle badge color families
-const BADGE_COLORS = [
-  // Blue family (Briarwood, TrustCircle Demo)
-  { primary: { r: 27, g: 54, b: 93 }, secondary: { r: 74, g: 144, b: 217 }, name: 'blue' },
-  // Green family (Oak Ridge)
-  { primary: { r: 45, g: 80, b: 22 }, secondary: { r: 107, g: 142, b: 35 }, name: 'green' },
-  // Teal family (Riverside)
-  { primary: { r: 26, g: 77, b: 92 }, secondary: { r: 78, g: 205, b: 196 }, name: 'teal' },
-  // Orange family (Maplewood)
-  { primary: { r: 139, g: 69, b: 19 }, secondary: { r: 210, g: 105, b: 30 }, name: 'orange' },
-];
+// Exact TrustCircle badge colors - must match these precisely
+const BRIARWOOD_COLORS = {
+  primary: { r: 27, g: 54, b: 93 },    // #1B365D - dark navy
+  secondary: { r: 74, g: 144, b: 217 }, // #4A90D9 - bright blue
+};
 
 export class BadgeDetector {
   private canvas: HTMLCanvasElement;
   private ctx: CanvasRenderingContext2D;
   private stableFrames = 0;
-  private lastDetected = false;
 
   constructor() {
     this.canvas = document.createElement('canvas');
     this.ctx = this.canvas.getContext('2d', { willReadFrequently: true })!;
   }
 
-  /**
-   * Fast badge detection - optimized for speed
-   */
   detectBadge(video: HTMLVideoElement): DetectionResult {
     const width = video.videoWidth;
     const height = video.videoHeight;
 
     if (width === 0 || height === 0) {
-      return {
-        detected: false,
-        centered: false,
-        ready: false,
-        guidance: 'Starting camera...',
-        confidence: 0,
-      };
+      return { detected: false, ready: false, guidance: 'Starting camera...', confidence: 0 };
     }
 
-    // Use smaller canvas for faster processing
+    // Sample center of frame at reduced resolution
     const scale = 0.25;
     const sw = Math.floor(width * scale);
     const sh = Math.floor(height * scale);
@@ -62,106 +45,72 @@ export class BadgeDetector {
     this.canvas.height = sh;
     this.ctx.drawImage(video, 0, 0, sw, sh);
 
-    // Sample center region only (where badge should be)
-    const centerX = sw / 2;
-    const centerY = sh / 2;
-    const sampleSize = Math.min(sw, sh) * 0.4;
-
-    const startX = Math.floor(centerX - sampleSize / 2);
-    const startY = Math.floor(centerY - sampleSize / 2);
-    const regionSize = Math.floor(sampleSize);
+    // Only look at center 40% where badge should be
+    const regionSize = Math.floor(Math.min(sw, sh) * 0.4);
+    const startX = Math.floor((sw - regionSize) / 2);
+    const startY = Math.floor((sh - regionSize) / 2);
 
     const imageData = this.ctx.getImageData(startX, startY, regionSize, regionSize);
     const data = imageData.data;
 
-    // Quick color analysis
-    let blueCount = 0;
-    let greenCount = 0;
-    let tealCount = 0;
-    let orangeCount = 0;
-    let totalSampled = 0;
+    // Count pixels that match our EXACT badge colors (with tolerance)
+    let primaryMatches = 0;
+    let secondaryMatches = 0;
+    let totalPixels = 0;
 
-    // Sample every 4th pixel for speed
+    // Check every 4th pixel for speed
     for (let i = 0; i < data.length; i += 16) {
       const r = data[i];
       const g = data[i + 1];
       const b = data[i + 2];
-      totalSampled++;
+      totalPixels++;
 
-      // Blue detection (b dominant, not too bright)
-      if (b > r * 1.2 && b > g * 0.8 && b > 40 && b < 240) {
-        blueCount++;
+      // Check primary color match (dark navy blue)
+      const primaryDist = colorDistance(r, g, b, BRIARWOOD_COLORS.primary);
+      if (primaryDist < 50) {
+        primaryMatches++;
       }
-      // Green detection (g dominant)
-      if (g > r * 1.1 && g > b * 1.1 && g > 40 && g < 240) {
-        greenCount++;
-      }
-      // Teal detection (g and b both high, r low)
-      if (g > r * 1.3 && b > r * 1.3 && g > 60 && b > 60) {
-        tealCount++;
-      }
-      // Orange detection (r high, g medium, b low)
-      if (r > g * 1.1 && r > b * 2 && r > 80 && g > 40) {
-        orangeCount++;
+
+      // Check secondary color match (bright blue)
+      const secondaryDist = colorDistance(r, g, b, BRIARWOOD_COLORS.secondary);
+      if (secondaryDist < 50) {
+        secondaryMatches++;
       }
     }
 
-    const blueRatio = blueCount / totalSampled;
-    const greenRatio = greenCount / totalSampled;
-    const tealRatio = tealCount / totalSampled;
-    const orangeRatio = orangeCount / totalSampled;
+    const primaryRatio = primaryMatches / totalPixels;
+    const secondaryRatio = secondaryMatches / totalPixels;
 
-    // Detect if any badge color family is present
-    const threshold = 0.15; // 15% of pixels need to match
-    const detected = blueRatio > threshold ||
-                     greenRatio > threshold ||
-                     tealRatio > threshold ||
-                     orangeRatio > threshold;
+    // STRICT: Need BOTH colors present in significant amounts
+    // Real badge has gradient so should have both
+    const hasPrimary = primaryRatio > 0.08;  // At least 8% dark blue
+    const hasSecondary = secondaryRatio > 0.05; // At least 5% bright blue
+    const detected = hasPrimary && hasSecondary;
 
-    // Calculate confidence
-    const maxRatio = Math.max(blueRatio, greenRatio, tealRatio, orangeRatio);
-    const confidence = Math.min(1, maxRatio * 3);
+    const confidence = detected ? Math.min(1, (primaryRatio + secondaryRatio) * 3) : 0;
 
-    // Track stability
+    // Track stability - need 8 consecutive frames
     if (detected) {
-      if (this.lastDetected) {
-        this.stableFrames++;
-      } else {
-        this.stableFrames = 1;
-      }
+      this.stableFrames++;
     } else {
       this.stableFrames = 0;
     }
-    this.lastDetected = detected;
 
-    // Ready after just 5 stable frames (~0.5 seconds at 10fps)
-    const ready = this.stableFrames >= 5;
+    const ready = this.stableFrames >= 8;
 
-    // Simple guidance
+    // Guidance
     let guidance: string;
     if (!detected) {
       guidance = 'Point at a TrustCircle badge';
-    } else if (confidence < 0.3) {
-      guidance = 'Move closer';
-    } else if (ready) {
-      guidance = 'Verifying...';
-    } else {
+    } else if (!ready) {
       guidance = 'Hold steady...';
+    } else {
+      guidance = 'Verifying...';
     }
 
-    return {
-      detected,
-      centered: detected && confidence > 0.25,
-      ready,
-      guidance,
-      confidence,
-    };
+    return { detected, ready, guidance, confidence };
   }
 
-  /**
-   * Extract color signature for API verification
-   * Samples many pixels from center to get accurate color representation
-   */
   extractColorSignature(video: HTMLVideoElement): number[] {
     const width = video.videoWidth;
     const height = video.videoHeight;
@@ -170,48 +119,53 @@ export class BadgeDetector {
     this.canvas.height = height;
     this.ctx.drawImage(video, 0, 0);
 
-    // Sample center region (where badge should be)
-    const centerX = width / 2;
-    const centerY = height / 2;
-    const sampleSize = Math.min(width, height) * 0.3; // 30% of smallest dimension
+    // Sample center region
+    const size = Math.floor(Math.min(width, height) * 0.3);
+    const startX = Math.floor((width - size) / 2);
+    const startY = Math.floor((height - size) / 2);
 
-    const startX = Math.floor(centerX - sampleSize / 2);
-    const startY = Math.floor(centerY - sampleSize / 2);
-    const regionSize = Math.floor(sampleSize);
-
-    const imageData = this.ctx.getImageData(startX, startY, regionSize, regionSize);
+    const imageData = this.ctx.getImageData(startX, startY, size, size);
     const data = imageData.data;
 
-    // Sample 50 pixels evenly distributed across the region
+    // Collect actual badge-colored pixels only
     const colors: number[] = [];
-    const pixelCount = data.length / 4;
-    const step = Math.max(1, Math.floor(pixelCount / 50));
 
-    for (let p = 0; p < pixelCount && colors.length < 150; p += step) {
-      const i = p * 4;
+    for (let i = 0; i < data.length && colors.length < 150; i += 16) {
       const r = data[i];
       const g = data[i + 1];
       const b = data[i + 2];
 
-      // Skip very dark pixels (likely shadows/black areas)
-      if (r + g + b < 30) continue;
-      // Skip very bright pixels (likely white/highlights)
-      if (r > 240 && g > 240 && b > 240) continue;
+      // Only include pixels that are close to our badge colors
+      const primaryDist = colorDistance(r, g, b, BRIARWOOD_COLORS.primary);
+      const secondaryDist = colorDistance(r, g, b, BRIARWOOD_COLORS.secondary);
 
-      colors.push(r, g, b);
+      if (primaryDist < 60 || secondaryDist < 60) {
+        colors.push(r, g, b);
+      }
     }
 
-    console.log('Extracted colors sample:', colors.slice(0, 15));
+    // If we didn't find enough badge-colored pixels, detection was wrong
+    if (colors.length < 30) {
+      console.log('Not enough badge colors found:', colors.length / 3, 'pixels');
+      return [];
+    }
+
     return colors;
   }
 
   reset() {
     this.stableFrames = 0;
-    this.lastDetected = false;
   }
 }
 
-// Singleton
+function colorDistance(r: number, g: number, b: number, target: { r: number; g: number; b: number }): number {
+  return Math.sqrt(
+    Math.pow(r - target.r, 2) +
+    Math.pow(g - target.g, 2) +
+    Math.pow(b - target.b, 2)
+  );
+}
+
 let instance: BadgeDetector | null = null;
 
 export function getBadgeDetector(): BadgeDetector {

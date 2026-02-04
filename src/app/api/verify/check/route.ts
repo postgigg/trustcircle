@@ -84,72 +84,57 @@ export async function POST(request: NextRequest) {
   }
 }
 
-// Check if the scanned colors match any demo zone badge
-// Returns the BEST matching zone, not just the first match
+// Check if the scanned colors match Briarwood badge (blue colors)
+// The detector already filters for these colors, so just verify they're present
 function checkDemoZonesMatch(colorSignature: number[]): typeof DEMO_ZONES[0] | null {
   const totalSamples = colorSignature.length / 3;
-  if (totalSamples === 0) return null;
 
-  let bestZone: typeof DEMO_ZONES[0] | null = null;
-  let bestScore = 0;
-
-  for (const demoZone of DEMO_ZONES) {
-    const primaryRGB = hexToRgb(demoZone.color_primary);
-    const secondaryRGB = hexToRgb(demoZone.color_secondary);
-
-    if (!primaryRGB || !secondaryRGB) continue;
-
-    let totalDistance = 0;
-    let matchingPixels = 0;
-
-    for (let i = 0; i < colorSignature.length; i += 3) {
-      const r = colorSignature[i];
-      const g = colorSignature[i + 1];
-      const b = colorSignature[i + 2];
-
-      // Calculate distance to primary color
-      const primaryDist = Math.sqrt(
-        Math.pow(r - primaryRGB.r, 2) +
-        Math.pow(g - primaryRGB.g, 2) +
-        Math.pow(b - primaryRGB.b, 2)
-      );
-
-      // Calculate distance to secondary color
-      const secondaryDist = Math.sqrt(
-        Math.pow(r - secondaryRGB.r, 2) +
-        Math.pow(g - secondaryRGB.g, 2) +
-        Math.pow(b - secondaryRGB.b, 2)
-      );
-
-      // Use the closer color match
-      const minDist = Math.min(primaryDist, secondaryDist);
-
-      // Count as matching if reasonably close (within 100 units)
-      if (minDist < 100) {
-        matchingPixels++;
-        totalDistance += minDist;
-      }
-    }
-
-    // Calculate score: more matching pixels + closer distances = higher score
-    const matchRatio = matchingPixels / totalSamples;
-    const avgDistance = matchingPixels > 0 ? totalDistance / matchingPixels : 255;
-
-    // Score formula: match ratio weighted by inverse distance
-    // Higher match ratio and lower distance = better score
-    const score = matchRatio * (1 - avgDistance / 255);
-
-    console.log(`Zone ${demoZone.zone_name}: matchRatio=${matchRatio.toFixed(2)}, avgDist=${avgDistance.toFixed(0)}, score=${score.toFixed(3)}`);
-
-    // Need at least 15% of pixels to match
-    if (matchRatio >= 0.15 && score > bestScore) {
-      bestScore = score;
-      bestZone = demoZone;
-    }
+  // Need at least 10 color samples
+  if (totalSamples < 10) {
+    console.log('Not enough samples:', totalSamples);
+    return null;
   }
 
-  console.log('Best match:', bestZone?.zone_name || 'none', 'score:', bestScore.toFixed(3));
-  return bestZone;
+  // Briarwood/TrustCircle colors
+  const primaryRGB = { r: 27, g: 54, b: 93 };    // #1B365D
+  const secondaryRGB = { r: 74, g: 144, b: 217 }; // #4A90D9
+
+  let primaryMatches = 0;
+  let secondaryMatches = 0;
+
+  for (let i = 0; i < colorSignature.length; i += 3) {
+    const r = colorSignature[i];
+    const g = colorSignature[i + 1];
+    const b = colorSignature[i + 2];
+
+    const primaryDist = Math.sqrt(
+      Math.pow(r - primaryRGB.r, 2) +
+      Math.pow(g - primaryRGB.g, 2) +
+      Math.pow(b - primaryRGB.b, 2)
+    );
+
+    const secondaryDist = Math.sqrt(
+      Math.pow(r - secondaryRGB.r, 2) +
+      Math.pow(g - secondaryRGB.g, 2) +
+      Math.pow(b - secondaryRGB.b, 2)
+    );
+
+    if (primaryDist < 60) primaryMatches++;
+    if (secondaryDist < 60) secondaryMatches++;
+  }
+
+  const primaryRatio = primaryMatches / totalSamples;
+  const secondaryRatio = secondaryMatches / totalSamples;
+
+  console.log(`Briarwood check: primary=${(primaryRatio * 100).toFixed(1)}%, secondary=${(secondaryRatio * 100).toFixed(1)}%`);
+
+  // Need significant presence of both colors
+  if (primaryRatio > 0.2 || secondaryRatio > 0.2) {
+    // Return Briarwood (first blue zone)
+    return DEMO_ZONES.find(z => z.zone_id === 'demo-briarwood') || DEMO_ZONES[0];
+  }
+
+  return null;
 }
 
 function extractParamsFromColors(

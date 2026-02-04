@@ -129,8 +129,13 @@ export default function Scanner({ onResult, onCancel }: ScannerProps) {
     try {
       const colorSignature = detectorRef.current.extractColorSignature(videoRef.current);
 
-      // Debug: log captured colors
-      console.log('Color signature:', colorSignature.slice(0, 15));
+      // If not enough badge colors found, keep scanning
+      if (colorSignature.length === 0) {
+        verifyingRef.current = false;
+        if (detectorRef.current) detectorRef.current.reset();
+        setGuidance('Badge not clear - try again');
+        return;
+      }
 
       const response = await fetch('/api/verify/check', {
         method: 'POST',
@@ -139,7 +144,6 @@ export default function Scanner({ onResult, onCancel }: ScannerProps) {
       });
 
       const result = await response.json();
-      console.log('Verify result:', result);
 
       if (result.verified) {
         stopCamera();
@@ -153,7 +157,7 @@ export default function Scanner({ onResult, onCancel }: ScannerProps) {
     // Reset and continue scanning
     verifyingRef.current = false;
     if (detectorRef.current) detectorRef.current.reset();
-    setGuidance('Try again - hold steady');
+    setGuidance('Not recognized - try again');
   };
 
   const handleNotRecognized = () => {

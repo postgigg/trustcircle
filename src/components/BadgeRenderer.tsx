@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from 'react';
 import type { Zone, DeviceStatus } from '@/types';
 import { extractSeedParameters } from '@/lib/crypto';
+import { getPatternMultiplier, PATTERN_CONFIG } from '@/lib/patternEncoder';
 
 interface BadgeRendererProps {
   zone: Zone;
@@ -11,6 +12,8 @@ interface BadgeRendererProps {
   isSubsidized?: boolean;
   microVariation?: number;
   showTimestamp?: boolean;
+  /** 24-bit pattern for invisible device verification (brightness modulation) */
+  pattern?: boolean[];
 }
 
 export default function BadgeRenderer({
@@ -20,6 +23,7 @@ export default function BadgeRenderer({
   isSubsidized = false,
   microVariation = 0,
   showTimestamp = true,
+  pattern,
 }: BadgeRendererProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const animationRef = useRef<number>(0);
@@ -58,6 +62,11 @@ export default function BadgeRenderer({
     const animate = (timestamp: number) => {
       const time = timestamp * 0.001 * speedMultiplier + phaseOffset * 1000 + microVariation * 100;
 
+      // Calculate brightness multiplier for invisible verification pattern
+      const brightnessMultiplier = pattern && pattern.length === PATTERN_CONFIG.BITS_TOTAL
+        ? getPatternMultiplier(pattern, timestamp)
+        : 1.0;
+
       ctx.clearRect(0, 0, size, size);
 
       if (status === 'inactive' || status === 'frozen') {
@@ -78,22 +87,22 @@ export default function BadgeRenderer({
         ctx.stroke();
         ctx.restore();
       } else {
-        const pattern = zone.motion_pattern || 'wave';
-        switch (pattern) {
+        const motionPattern = zone.motion_pattern || 'wave';
+        switch (motionPattern) {
           case 'wave':
-            drawWavePattern(ctx, center, radius, time, primaryColor, secondaryColor, colorIntensity);
+            drawWavePattern(ctx, center, radius, time, primaryColor, secondaryColor, colorIntensity, brightnessMultiplier);
             break;
           case 'pulse':
-            drawPulsePattern(ctx, center, radius, time, primaryColor, secondaryColor, colorIntensity);
+            drawPulsePattern(ctx, center, radius, time, primaryColor, secondaryColor, colorIntensity, brightnessMultiplier);
             break;
           case 'ripple':
-            drawRipplePattern(ctx, center, radius, time, primaryColor, secondaryColor, colorIntensity);
+            drawRipplePattern(ctx, center, radius, time, primaryColor, secondaryColor, colorIntensity, brightnessMultiplier);
             break;
           case 'spiral':
-            drawSpiralPattern(ctx, center, radius, time, primaryColor, secondaryColor, colorIntensity, motionModifier);
+            drawSpiralPattern(ctx, center, radius, time, primaryColor, secondaryColor, colorIntensity, motionModifier, brightnessMultiplier);
             break;
           default:
-            drawWavePattern(ctx, center, radius, time, primaryColor, secondaryColor, colorIntensity);
+            drawWavePattern(ctx, center, radius, time, primaryColor, secondaryColor, colorIntensity, brightnessMultiplier);
         }
       }
 
@@ -118,7 +127,7 @@ export default function BadgeRenderer({
         cancelAnimationFrame(animationRef.current);
       }
     };
-  }, [zone, seed, status, isSubsidized, microVariation]);
+  }, [zone, seed, status, isSubsidized, microVariation, pattern]);
 
   const getStatusLabel = () => {
     switch (status) {
@@ -191,7 +200,8 @@ function drawWavePattern(
   time: number,
   primary: string,
   secondary: string,
-  intensity: number
+  intensity: number,
+  brightnessMultiplier: number = 1.0
 ) {
   const t = isFinite(time) ? time : 0;
 
@@ -199,6 +209,9 @@ function drawWavePattern(
   ctx.beginPath();
   ctx.arc(center, center, radius, 0, Math.PI * 2);
   ctx.clip();
+
+  // Apply brightness multiplier via global alpha and filter
+  ctx.filter = `brightness(${brightnessMultiplier})`;
 
   // Gradient background
   const gradient = ctx.createLinearGradient(0, 0, center * 2, center * 2);
@@ -224,6 +237,7 @@ function drawWavePattern(
     ctx.stroke();
   }
 
+  ctx.filter = 'none';
   ctx.restore();
 }
 
@@ -234,7 +248,8 @@ function drawPulsePattern(
   time: number,
   primary: string,
   secondary: string,
-  intensity: number
+  intensity: number,
+  brightnessMultiplier: number = 1.0
 ) {
   const t = isFinite(time) ? time : 0;
 
@@ -242,6 +257,9 @@ function drawPulsePattern(
   ctx.beginPath();
   ctx.arc(center, center, radius, 0, Math.PI * 2);
   ctx.clip();
+
+  // Apply brightness multiplier
+  ctx.filter = `brightness(${brightnessMultiplier})`;
 
   // Solid background
   ctx.fillStyle = primary;
@@ -266,6 +284,7 @@ function drawPulsePattern(
   ctx.fillStyle = secondary;
   ctx.fill();
 
+  ctx.filter = 'none';
   ctx.restore();
 }
 
@@ -276,7 +295,8 @@ function drawRipplePattern(
   time: number,
   primary: string,
   secondary: string,
-  intensity: number
+  intensity: number,
+  brightnessMultiplier: number = 1.0
 ) {
   const t = isFinite(time) ? time : 0;
 
@@ -284,6 +304,9 @@ function drawRipplePattern(
   ctx.beginPath();
   ctx.arc(center, center, radius, 0, Math.PI * 2);
   ctx.clip();
+
+  // Apply brightness multiplier
+  ctx.filter = `brightness(${brightnessMultiplier})`;
 
   // Radial gradient background
   const gradient = ctx.createRadialGradient(center, center, 0, center, center, radius);
@@ -304,6 +327,7 @@ function drawRipplePattern(
     ctx.stroke();
   }
 
+  ctx.filter = 'none';
   ctx.restore();
 }
 
@@ -315,7 +339,8 @@ function drawSpiralPattern(
   primary: string,
   secondary: string,
   intensity: number,
-  modifier: number
+  modifier: number,
+  brightnessMultiplier: number = 1.0
 ) {
   const safeTime = isFinite(time) ? time : 0;
   const safeModifier = isFinite(modifier) ? modifier : 0.5;
@@ -324,6 +349,9 @@ function drawSpiralPattern(
   ctx.beginPath();
   ctx.arc(center, center, radius, 0, Math.PI * 2);
   ctx.clip();
+
+  // Apply brightness multiplier
+  ctx.filter = `brightness(${brightnessMultiplier})`;
 
   // Solid background
   ctx.fillStyle = primary;
@@ -361,5 +389,6 @@ function drawSpiralPattern(
   ctx.fillStyle = secondary;
   ctx.fill();
 
+  ctx.filter = 'none';
   ctx.restore();
 }

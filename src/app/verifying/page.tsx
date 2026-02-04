@@ -5,7 +5,7 @@ import { useRouter } from 'next/navigation';
 import { getDeviceToken, getZone, getVerificationStartDate, isRegistered } from '@/lib/storage';
 import { hasPin } from '@/lib/pin';
 import { collectPresenceData, isNighttime } from '@/lib/presence';
-import { checkAndRecordMovement, getMovementDaysCount } from '@/lib/movement';
+import { checkAndRecordMovementWithLocation, getMovementDaysCount } from '@/lib/movement';
 import BottomNav from '@/components/ui/BottomNav';
 import LoadingSpinner from '@/components/ui/LoadingSpinner';
 import { HelpTooltip } from '@/components/ui/Tooltip';
@@ -19,6 +19,9 @@ export default function VerifyingPage() {
   const [zone, setZoneData] = useState<Zone | null>(null);
   const [loading, setLoading] = useState(true);
   const [todayMovement, setTodayMovement] = useState<boolean | null>(null);
+  const [checkinsCompleted, setCheckinsCompleted] = useState(0);
+  const [checkinsRequired, setCheckinsRequired] = useState(3);
+  const [trustScore, setTrustScore] = useState<number | null>(null);
 
   const checkPresence = useCallback(async () => {
     const deviceToken = getDeviceToken();
@@ -53,7 +56,8 @@ export default function VerifyingPage() {
     const deviceToken = getDeviceToken();
     if (!deviceToken) return;
 
-    const isHuman = await checkAndRecordMovement();
+    // Use the new function that captures location for correlation
+    const { isHuman, location } = await checkAndRecordMovementWithLocation();
     setTodayMovement(isHuman);
 
     try {
@@ -63,12 +67,18 @@ export default function VerifyingPage() {
         body: JSON.stringify({
           deviceToken,
           movementDetected: isHuman,
+          lat: location?.lat,
+          lon: location?.lon,
+          timestamp: Date.now(),
         }),
       });
 
       const data = await response.json();
       if (data.movementDaysConfirmed !== undefined) {
         setMovementDaysConfirmed(data.movementDaysConfirmed);
+      }
+      if (data.trustScore !== undefined) {
+        setTrustScore(data.trustScore);
       }
     } catch (error) {
       console.error('Movement check failed:', error);
@@ -101,10 +111,38 @@ export default function VerifyingPage() {
       if (data.zone) {
         setZoneData(data.zone);
       }
+      if (data.checkinsCompleted !== undefined) {
+        setCheckinsCompleted(data.checkinsCompleted);
+      }
+      if (data.checkinsRequired !== undefined) {
+        setCheckinsRequired(data.checkinsRequired);
+      }
     } catch (error) {
       console.error('Status fetch failed:', error);
     }
   }, [router]);
+
+  // Fetch check-in status
+  const fetchCheckinStatus = useCallback(async () => {
+    const deviceToken = getDeviceToken();
+    if (!deviceToken) return;
+
+    try {
+      const response = await fetch('/api/checkin/schedule', {
+        headers: { 'x-device-token': deviceToken },
+      });
+
+      const data = await response.json();
+      if (data.completed !== undefined) {
+        setCheckinsCompleted(data.completed);
+      }
+      if (data.total !== undefined) {
+        setCheckinsRequired(data.total);
+      }
+    } catch (error) {
+      console.error('Check-in status fetch failed:', error);
+    }
+  }, []);
 
   useEffect(() => {
     if (!isRegistered()) {
@@ -126,8 +164,9 @@ export default function VerifyingPage() {
     setMovementDaysConfirmed(getMovementDaysCount());
 
     fetchStatus();
+    fetchCheckinStatus();
     setLoading(false);
-  }, [router, fetchStatus]);
+  }, [router, fetchStatus, fetchCheckinStatus]);
 
   useEffect(() => {
     const presenceInterval = setInterval(checkPresence, 60 * 60 * 1000);
@@ -337,6 +376,54 @@ export default function VerifyingPage() {
                 />
               ))}
             </div>
+          </div>
+
+          {/* Check-in Progress */}
+          <div className="bg-white border border-neutral-200 rounded-2xl p-5">
+            <div className="flex items-center justify-between mb-4">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-full bg-purple-50 flex items-center justify-center">
+                  <svg className="w-5 h-5 text-purple-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M9 12.75L11.25 15 15 9.75m-3-7.036A11.959 11.959 0 013.598 6 11.99 11.99 0 003 9.749c0 5.592 3.824 10.29 9 11.623 5.176-1.332 9-6.03 9-11.622 0-1.31-.21-2.571-.598-3.751h-.152c-3.196 0-6.1-1.248-8.25-3.285z" />
+                  </svg>
+                </div>
+                <div className="flex items-center gap-2">
+                  <div>
+                    <p className="font-semibold text-neutral-900">Human check-ins</p>
+                    <p className="text-sm text-neutral-500">Random verifications</p>
+                  </div>
+                  <HelpTooltip
+                    content="We'll send you 3 random check-ins during verification. Complete a quick puzzle to prove you're human. You'll be notified when one is ready."
+                    position="bottom"
+                  />
+                </div>
+              </div>
+              <div className="text-right">
+                <span className="text-2xl font-bold text-neutral-900">{checkinsCompleted}</span>
+                <span className="text-neutral-400">/{checkinsRequired}</span>
+              </div>
+            </div>
+            <div className="h-2 bg-neutral-100 rounded-full overflow-hidden">
+              <div
+                className="h-full bg-purple-500 rounded-full transition-all duration-500"
+                style={{ width: `${(checkinsCompleted / checkinsRequired) * 100}%` }}
+              />
+            </div>
+            <div className="flex gap-1 mt-3">
+              {Array.from({ length: checkinsRequired }).map((_, i) => (
+                <div
+                  key={i}
+                  className={`flex-1 h-2 rounded-sm transition-all ${
+                    i < checkinsCompleted ? 'bg-purple-500' : 'bg-neutral-100'
+                  }`}
+                />
+              ))}
+            </div>
+            {checkinsCompleted < checkinsRequired && (
+              <p className="text-xs text-neutral-500 mt-3">
+                Check-ins are sent at random times. Make sure notifications are enabled.
+              </p>
+            )}
           </div>
         </div>
 

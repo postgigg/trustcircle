@@ -1,11 +1,42 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { getAllZones } from '@/lib/supabase';
+import { getAllZones, supabase } from '@/lib/supabase';
 import { generateCurrentSeed, getAnimationParameters, verifySeedMatch } from '@/lib/badge-seed';
+import { prefixToHex } from '@/lib/patternEncoder';
+import { securityMiddleware } from '@/middleware/security';
+import crypto from 'crypto';
 import type { Zone } from '@/types';
 
+/**
+ * POST /api/verify/check
+ *
+ * Supports two verification modes:
+ * 1. Color signature verification (legacy) - colorSignature param
+ * 2. Pattern verification (new, O(1) lookup) - devicePrefix + checksum params
+ */
 export async function POST(request: NextRequest) {
+  // Security check
+  const security = await securityMiddleware(request, {
+    maxRequests: 30, // Higher limit for verification
+    windowSeconds: 60,
+  });
+
+  if (!security.allowed) {
+    return NextResponse.json(
+      { error: security.reason || 'Access denied' },
+      { status: 403 }
+    );
+  }
+
   try {
-    const { colorSignature, timestamp } = await request.json();
+    const body = await request.json();
+
+    // Check if this is pattern-based verification
+    if (body.devicePrefix !== undefined && body.checksum !== undefined) {
+      return await verifyPattern(body.devicePrefix, body.checksum, body.zoneId);
+    }
+
+    // Legacy color signature verification
+    const { colorSignature } = body;
 
     if (!colorSignature || !Array.isArray(colorSignature) || colorSignature.length < 9) {
       return NextResponse.json({ error: 'Invalid color signature' }, { status: 400 });
@@ -53,6 +84,88 @@ export async function POST(request: NextRequest) {
   } catch (error) {
     console.error('Verification check error:', error);
     return NextResponse.json({ error: 'Verification failed' }, { status: 500 });
+  }
+}
+
+/**
+ * Pattern-based verification with O(1) database lookup
+ *
+ * Uses device token prefix for indexed lookup, then verifies checksum
+ * against the device's current secret hash.
+ */
+async function verifyPattern(
+  devicePrefix: number,
+  checksum: number,
+  zoneId?: string
+): Promise<NextResponse> {
+  try {
+    // Convert prefix to hex string for LIKE query
+    const prefixHex = prefixToHex(devicePrefix);
+
+    // Build query - O(1) lookup using index on device_token prefix
+    let query = supabase
+      .from('device_tokens')
+      .select('device_token, zone_id, current_secret_hash, status, zones(zone_name)')
+      .like('device_token', `${prefixHex}%`)
+      .not('current_secret_hash', 'is', null)
+      .in('status', ['active', 'verifying'])
+      .limit(10);
+
+    // Filter by zone if provided
+    if (zoneId) {
+      query = query.eq('zone_id', zoneId);
+    }
+
+    const { data: devices, error } = await query;
+
+    if (error) {
+      console.error('Pattern verification query error:', error);
+      return NextResponse.json({ verified: false, reason: 'Database error' });
+    }
+
+    if (!devices || devices.length === 0) {
+      return NextResponse.json({
+        verified: false,
+        reason: 'No matching device found',
+      });
+    }
+
+    // Verify checksum against each potential device
+    for (const device of devices) {
+      if (!device.current_secret_hash) continue;
+
+      // Compute expected checksum: sha256(device_token + current_secret_hash)[0]
+      const hash = crypto
+        .createHash('sha256')
+        .update(device.device_token + device.current_secret_hash)
+        .digest();
+
+      const expectedChecksum = hash[0];
+
+      if (expectedChecksum === checksum) {
+        // Match found!
+        // zones is an array from the join, get first element
+        const zonesData = device.zones as unknown as { zone_name: string }[] | null;
+        const zoneName = zonesData?.[0]?.zone_name || 'Unknown Zone';
+
+        return NextResponse.json({
+          verified: true,
+          zoneName,
+          zoneId: device.zone_id,
+          confidence: 1.0, // Pattern match is high confidence
+          verificationMethod: 'pattern',
+        });
+      }
+    }
+
+    // No checksum match found
+    return NextResponse.json({
+      verified: false,
+      reason: 'Checksum mismatch - possible replay or expired secret',
+    });
+  } catch (error) {
+    console.error('Pattern verification error:', error);
+    return NextResponse.json({ verified: false, reason: 'Verification failed' });
   }
 }
 

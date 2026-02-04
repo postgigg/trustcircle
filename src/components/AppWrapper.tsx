@@ -5,12 +5,49 @@ import PermissionsOnboarding from './PermissionsOnboarding';
 import InstallPrompt from './InstallPrompt';
 import { PaywallProvider } from '@/contexts/PaywallContext';
 import { ToastProvider } from '@/contexts/ToastContext';
+import { initializeLocalSecurity, getUnreportedThreats, markThreatsReported } from '@/lib/local-security';
+import { generateDeviceFingerprint, detectAutomation, detectHeadlessBrowser, detectEmulator } from '@/lib/device-fingerprint';
 
 interface AppWrapperProps {
   children: React.ReactNode;
 }
 
 type AppMode = 'loading' | 'desktop' | 'mobile-browser' | 'pwa';
+
+/**
+ * Report detected threats to server (only sends threat type + fingerprint hash)
+ * NO device details are transmitted - those stay in localStorage
+ */
+async function reportDetectedThreats(state: {
+  isEmulator: boolean;
+  isHeadless: boolean;
+  isAutomation: boolean;
+}) {
+  try {
+    const fingerprintHash = await generateDeviceFingerprint();
+
+    const threats: string[] = [];
+    if (state.isEmulator) threats.push('emulator');
+    if (state.isHeadless) threats.push('headless');
+    if (state.isAutomation) threats.push('automation');
+
+    for (const threatType of threats) {
+      await fetch('/api/security/report-threat', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          threatType,
+          fingerprintHash,
+        }),
+      });
+    }
+
+    // Mark as reported
+    markThreatsReported();
+  } catch (error) {
+    console.error('Failed to report threats:', error);
+  }
+}
 
 export default function AppWrapper({ children }: AppWrapperProps) {
   const [mode, setMode] = useState<AppMode>('loading');
@@ -46,6 +83,31 @@ export default function AppWrapper({ children }: AppWrapperProps) {
       if (completed !== 'true') {
         setShowOnboarding(true);
       }
+
+      // Register service worker for push notifications
+      if ('serviceWorker' in navigator) {
+        navigator.serviceWorker.register('/sw.js', { scope: '/' })
+          .then((registration) => {
+            console.log('Service worker registered:', registration.scope);
+          })
+          .catch((error) => {
+            console.error('Service worker registration failed:', error);
+          });
+      }
+
+      // Initialize local security (runs in background)
+      initializeLocalSecurity()
+        .then(({ state }) => {
+          console.log('Local security initialized:', state);
+
+          // If threats detected, report to server (only type + fingerprint hash)
+          if (state.isEmulator || state.isHeadless || state.isAutomation) {
+            reportDetectedThreats(state);
+          }
+        })
+        .catch((error) => {
+          console.error('Local security initialization failed:', error);
+        });
     } else {
       // Mobile browser, not installed
       setMode('mobile-browser');

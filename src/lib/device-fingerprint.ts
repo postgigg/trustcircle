@@ -224,3 +224,103 @@ export function detectScreenMirroring(): boolean {
 
   return false;
 }
+
+/**
+ * Detect headless browser
+ */
+export function detectHeadlessBrowser(): boolean {
+  if (typeof window === 'undefined') return false;
+
+  // Check for headless indicators
+  const indicators = [
+    // Chrome headless
+    navigator.webdriver === true,
+    // Missing plugins (but not iOS Safari which has no plugins)
+    navigator.plugins?.length === 0 && !/iPhone|iPad/i.test(navigator.userAgent),
+    // Missing languages
+    !navigator.languages || navigator.languages.length === 0,
+    // Phantom indicators
+    (window as unknown as Record<string, unknown>)['_phantom'] !== undefined,
+    (window as unknown as Record<string, unknown>)['__nightmare'] !== undefined,
+  ];
+
+  // Check user agent for headless
+  const ua = navigator.userAgent.toLowerCase();
+  if (ua.includes('headless')) return true;
+
+  // Return true if 2+ indicators present
+  return indicators.filter(Boolean).length >= 2;
+}
+
+/**
+ * Detect WebDriver / automation
+ */
+export function detectWebDriver(): boolean {
+  if (typeof window === 'undefined') return false;
+
+  // Direct webdriver check
+  if (navigator.webdriver === true) return true;
+
+  // Check document attribute
+  const docElement = document.documentElement;
+  if (docElement.getAttribute('webdriver') !== null) return true;
+
+  return false;
+}
+
+/**
+ * Detect automation tools (Selenium, Puppeteer, etc.)
+ */
+export function detectAutomation(): boolean {
+  if (typeof window === 'undefined') return false;
+
+  // Check for webdriver first
+  if (detectWebDriver()) return true;
+
+  // Check for automation globals
+  const automationGlobals = [
+    '__webdriver_script_fn',
+    '__driver_evaluate',
+    '__webdriver_evaluate',
+    '__selenium_evaluate',
+    '__fxdriver_evaluate',
+    '_selenium',
+    'calledSelenium',
+    '_Selenium_IDE_Recorder',
+    '__webdriverFunc',
+    '$cdc_asdjflasutopfhvcZLmcfl_', // Chrome DevTools Protocol
+    '$chrome_asyncScriptInfo',
+  ];
+
+  const win = window as unknown as Record<string, unknown>;
+  for (const global of automationGlobals) {
+    if (win[global] !== undefined) {
+      return true;
+    }
+  }
+
+  return false;
+}
+
+/**
+ * Get extended device info for local storage (not sent to server)
+ */
+export function getExtendedDeviceInfo(): {
+  hardwareConcurrency: number;
+  deviceMemory: number;
+  maxTouchPoints: number;
+  platform: string;
+  screenInfo: string;
+  timezone: string;
+  language: string;
+} {
+  return {
+    hardwareConcurrency: getHardwareConcurrency(),
+    deviceMemory: getDeviceMemory(),
+    maxTouchPoints: navigator.maxTouchPoints || 0,
+    platform: getPlatform(),
+    screenInfo: getScreenFingerprint(),
+    timezone: getTimezone(),
+    language: getLanguage(),
+  };
+}

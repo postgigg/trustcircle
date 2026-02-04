@@ -1,11 +1,12 @@
 'use client';
 
-import { useEffect, useState, useCallback } from 'react';
+import { useEffect, useState, useCallback, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import type { Zone, DeviceStatus } from '@/types';
 import { getDeviceToken, getZone, getStatus, isRegistered } from '@/lib/storage';
 import { hasPin, verifyPin, getLockoutStatus, recordFailedAttempt, clearAttempts, isFrozen } from '@/lib/pin';
 import { detectScreenMirroring } from '@/lib/device-fingerprint';
+import { generatePattern, generateSecret, hashSecret } from '@/lib/patternEncoder';
 import BadgeRenderer from '@/components/BadgeRenderer';
 import PinInput from '@/components/PinInput';
 import ProtectedRoute from '@/components/ProtectedRoute';
@@ -24,6 +25,8 @@ function BadgePageContent() {
   const [lockoutTime, setLockoutTime] = useState<number | null>(null);
   const [loading, setLoading] = useState(true);
   const [isMirroring, setIsMirroring] = useState(false);
+  const [verificationPattern, setVerificationPattern] = useState<boolean[] | undefined>();
+  const secretRotationRef = useRef<NodeJS.Timeout | null>(null);
 
   const fetchBadgeData = useCallback(async () => {
     const deviceToken = getDeviceToken();
@@ -124,6 +127,52 @@ function BadgePageContent() {
 
     return () => clearInterval(interval);
   }, [lockoutTime]);
+
+  // Invisible device verification: rotate secret every 30 seconds
+  useEffect(() => {
+    if (!authenticated || status === 'frozen' || status === 'revoked') return;
+
+    const deviceToken = getDeviceToken();
+    if (!deviceToken) return;
+
+    const rotateSecret = async () => {
+      try {
+        // Generate new random secret
+        const secret = generateSecret();
+
+        // Hash it for storage
+        const secretHash = await hashSecret(secret);
+
+        // Send hash to server
+        const response = await fetch('/api/badge/secret', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'x-device-token': deviceToken,
+          },
+          body: JSON.stringify({ secretHash }),
+        });
+
+        if (response.ok) {
+          // Generate the 24-bit verification pattern
+          const pattern = await generatePattern(deviceToken, secret);
+          setVerificationPattern(pattern);
+        }
+      } catch (error) {
+        console.error('Failed to rotate secret:', error);
+      }
+    };
+
+    // Rotate immediately on auth, then every 30 seconds
+    rotateSecret();
+    secretRotationRef.current = setInterval(rotateSecret, 30000);
+
+    return () => {
+      if (secretRotationRef.current) {
+        clearInterval(secretRotationRef.current);
+      }
+    };
+  }, [authenticated, status]);
 
   const handlePinComplete = (pin: string) => {
     if (verifyPin(pin)) {
@@ -262,6 +311,7 @@ function BadgePageContent() {
             status={status}
             isSubsidized={isSubsidized}
             microVariation={microVariation}
+            pattern={verificationPattern}
           />
         )}
 

@@ -6,13 +6,14 @@ interface PermissionsOnboardingProps {
   onComplete: () => void;
 }
 
-type PermissionStep = 'welcome' | 'location' | 'location-denied' | 'camera' | 'camera-denied' | 'complete';
+type PermissionStep = 'welcome' | 'location' | 'location-denied' | 'camera' | 'camera-denied' | 'notifications' | 'notifications-denied' | 'complete';
 type PermissionStatus = 'unknown' | 'granted' | 'denied' | 'unavailable';
 
 export default function PermissionsOnboarding({ onComplete }: PermissionsOnboardingProps) {
   const [step, setStep] = useState<PermissionStep>('welcome');
   const [locationStatus, setLocationStatus] = useState<PermissionStatus>('unknown');
   const [cameraStatus, setCameraStatus] = useState<PermissionStatus>('unknown');
+  const [notificationStatus, setNotificationStatus] = useState<PermissionStatus>('unknown');
   const [requesting, setRequesting] = useState(false);
   const [isIOS, setIsIOS] = useState(false);
   const [debugInfo, setDebugInfo] = useState<string>('');
@@ -149,7 +150,7 @@ export default function PermissionsOnboarding({ onComplete }: PermissionsOnboard
       }, 200);
 
       setCameraStatus('granted');
-      setStep('complete');
+      setStep('notifications');
       setRequesting(false);
     })
     .catch((error) => {
@@ -177,6 +178,58 @@ export default function PermissionsOnboarding({ onComplete }: PermissionsOnboard
     });
   }, []);
 
+  const requestNotifications = useCallback(async () => {
+    console.log('requestNotifications called');
+    setRequesting(true);
+
+    // Check if notifications are supported
+    if (!('Notification' in window)) {
+      console.log('Notifications not supported');
+      setNotificationStatus('unavailable');
+      setStep('complete'); // Skip to complete if not supported
+      setRequesting(false);
+      return;
+    }
+
+    // Check if already granted
+    if (Notification.permission === 'granted') {
+      console.log('Notifications already granted');
+      setNotificationStatus('granted');
+      setStep('complete');
+      setRequesting(false);
+      return;
+    }
+
+    // Check if denied
+    if (Notification.permission === 'denied') {
+      console.log('Notifications denied');
+      setNotificationStatus('denied');
+      setStep('notifications-denied');
+      setRequesting(false);
+      return;
+    }
+
+    // Request permission
+    try {
+      const result = await Notification.requestPermission();
+      console.log('Notification permission result:', result);
+
+      if (result === 'granted') {
+        setNotificationStatus('granted');
+        setStep('complete');
+      } else {
+        setNotificationStatus('denied');
+        setStep('notifications-denied');
+      }
+    } catch (error) {
+      console.error('Notification permission error:', error);
+      setNotificationStatus('denied');
+      setStep('notifications-denied');
+    }
+
+    setRequesting(false);
+  }, []);
+
   const finishOnboarding = () => {
     localStorage.setItem('tc_permissions_onboarding', 'true');
     onComplete();
@@ -199,15 +252,17 @@ export default function PermissionsOnboarding({ onComplete }: PermissionsOnboard
       {/* Progress dots */}
       <div className="flex-shrink-0 pt-safe">
         <div className="flex justify-center gap-2 py-6">
-          {['welcome', 'location', 'camera', 'complete'].map((s, i) => {
-            const currentIndex = ['welcome', 'location', 'location-denied', 'camera', 'camera-denied', 'complete'].indexOf(step);
-            const stepIndex = ['welcome', 'location', 'camera', 'complete'].indexOf(s);
+          {['welcome', 'location', 'camera', 'notifications', 'complete'].map((s, i) => {
+            const currentIndex = ['welcome', 'location', 'location-denied', 'camera', 'camera-denied', 'notifications', 'notifications-denied', 'complete'].indexOf(step);
+            const stepIndex = ['welcome', 'location', 'camera', 'notifications', 'complete'].indexOf(s);
             const isActive = (step === s) ||
               (s === 'location' && step === 'location-denied') ||
-              (s === 'camera' && step === 'camera-denied');
+              (s === 'camera' && step === 'camera-denied') ||
+              (s === 'notifications' && step === 'notifications-denied');
             const isPast = (s === 'welcome' && currentIndex > 0) ||
               (s === 'location' && currentIndex > 2) ||
-              (s === 'camera' && currentIndex > 4);
+              (s === 'camera' && currentIndex > 4) ||
+              (s === 'notifications' && currentIndex > 6);
 
             return (
               <div
@@ -617,10 +672,161 @@ export default function PermissionsOnboarding({ onComplete }: PermissionsOnboard
             </button>
 
             <button
-              onClick={() => continueWithoutPermission('complete')}
+              onClick={() => continueWithoutPermission('notifications')}
               className="w-full py-3 text-neutral-500 text-sm font-medium hover:text-neutral-900 transition-colors"
             >
               Continue without camera
+            </button>
+          </div>
+        )}
+
+        {/* NOTIFICATIONS REQUEST */}
+        {step === 'notifications' && (
+          <div className="max-w-sm w-full text-center">
+            <div className="w-24 h-24 mx-auto mb-6 rounded-full bg-amber-50 flex items-center justify-center">
+              <svg className="w-12 h-12 text-amber-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M14.857 17.082a23.848 23.848 0 005.454-1.31A8.967 8.967 0 0118 9.75v-.7V9A6 6 0 006 9v.75a8.967 8.967 0 01-2.312 6.022c1.733.64 3.56 1.085 5.455 1.31m5.714 0a24.255 24.255 0 01-5.714 0m5.714 0a3 3 0 11-5.714 0" />
+              </svg>
+            </div>
+
+            {/* Success badges for previous permissions */}
+            <div className="flex items-center justify-center gap-2 mb-6">
+              {locationStatus === 'granted' && (
+                <div className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-emerald-50 text-emerald-700 rounded-full text-xs font-medium">
+                  <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+                  </svg>
+                  Location
+                </div>
+              )}
+              {cameraStatus === 'granted' && (
+                <div className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-emerald-50 text-emerald-700 rounded-full text-xs font-medium">
+                  <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+                  </svg>
+                  Camera
+                </div>
+              )}
+            </div>
+
+            <h1 className="text-2xl font-bold text-neutral-900 mb-3">
+              Enable Notifications
+            </h1>
+            <p className="text-neutral-500 mb-6">
+              Get alerts when there&apos;s suspicious activity in your neighborhood, and check-in reminders during verification.
+            </p>
+
+            {/* iOS PWA notice */}
+            {isIOS && (
+              <div className="bg-blue-50 border border-blue-100 rounded-2xl p-4 mb-6 text-left">
+                <div className="flex items-start gap-3">
+                  <div className="w-8 h-8 rounded-full bg-blue-100 flex items-center justify-center flex-shrink-0">
+                    <svg className="w-4 h-4 text-blue-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                    </svg>
+                  </div>
+                  <div>
+                    <p className="text-sm font-medium text-blue-900">iOS Notifications</p>
+                    <p className="text-xs text-blue-700 mt-0.5">
+                      Since TrustCircle is installed on your home screen, notifications will work just like a native app.
+                    </p>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* Why notifications matter */}
+            <div className="bg-emerald-50 border border-emerald-100 rounded-2xl p-4 mb-6 text-left">
+              <div className="flex items-start gap-3">
+                <div className="w-8 h-8 rounded-full bg-emerald-100 flex items-center justify-center flex-shrink-0">
+                  <svg className="w-4 h-4 text-emerald-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" />
+                  </svg>
+                </div>
+                <div>
+                  <p className="text-sm font-medium text-emerald-900">Stay informed & verified</p>
+                  <p className="text-xs text-emerald-700 mt-0.5">
+                    Receive neighborhood alerts and complete quick check-ins during your 14-day verification.
+                  </p>
+                </div>
+              </div>
+            </div>
+
+            <button
+              onClick={requestNotifications}
+              disabled={requesting}
+              className="w-full py-4 bg-neutral-900 text-white text-sm font-semibold rounded-full hover:bg-neutral-800 active:scale-[0.98] transition-all disabled:opacity-50 flex items-center justify-center gap-2"
+            >
+              {requesting ? (
+                <>
+                  <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                  Requesting...
+                </>
+              ) : (
+                <>
+                  <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M14.857 17.082a23.848 23.848 0 005.454-1.31A8.967 8.967 0 0118 9.75v-.7V9A6 6 0 006 9v.75a8.967 8.967 0 01-2.312 6.022c1.733.64 3.56 1.085 5.455 1.31m5.714 0a24.255 24.255 0 01-5.714 0m5.714 0a3 3 0 11-5.714 0" />
+                  </svg>
+                  Enable Notifications
+                </>
+              )}
+            </button>
+
+            <button
+              onClick={() => continueWithoutPermission('complete')}
+              className="w-full py-3 text-neutral-500 text-sm font-medium hover:text-neutral-900 transition-colors mt-3"
+            >
+              Skip for now
+            </button>
+          </div>
+        )}
+
+        {/* NOTIFICATIONS DENIED */}
+        {step === 'notifications-denied' && (
+          <div className="max-w-sm w-full text-center">
+            <div className="w-24 h-24 mx-auto mb-8 rounded-full bg-amber-50 flex items-center justify-center">
+              <svg className="w-12 h-12 text-amber-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M14.857 17.082a23.848 23.848 0 005.454-1.31A8.967 8.967 0 0118 9.75v-.7V9A6 6 0 006 9v.75a8.967 8.967 0 01-2.312 6.022c1.733.64 3.56 1.085 5.455 1.31m5.714 0a24.255 24.255 0 01-5.714 0m5.714 0a3 3 0 11-5.714 0M13.5 3h-3" />
+              </svg>
+            </div>
+
+            <h1 className="text-2xl font-bold text-neutral-900 mb-3">
+              Notifications Not Enabled
+            </h1>
+            <p className="text-neutral-500 mb-6">
+              Without notifications, you may miss neighborhood alerts and check-in reminders. You can enable them later in Settings.
+            </p>
+
+            {/* Warning about check-ins */}
+            <div className="bg-amber-50 border border-amber-200 rounded-2xl p-4 mb-6 text-left">
+              <div className="flex items-start gap-3">
+                <div className="w-8 h-8 rounded-full bg-amber-100 flex items-center justify-center flex-shrink-0">
+                  <svg className="w-4 h-4 text-amber-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+                  </svg>
+                </div>
+                <div>
+                  <p className="text-sm font-medium text-amber-900">Important during verification</p>
+                  <p className="text-xs text-amber-700 mt-0.5">
+                    You&apos;ll need to complete 3 random check-ins during your 14-day verification. Without notifications, you&apos;ll need to check the app regularly.
+                  </p>
+                </div>
+              </div>
+            </div>
+
+            <button
+              onClick={requestNotifications}
+              disabled={requesting}
+              className="w-full py-4 bg-neutral-900 text-white text-sm font-semibold rounded-full hover:bg-neutral-800 active:scale-[0.98] transition-all disabled:opacity-50 mb-3"
+            >
+              {requesting ? 'Checking...' : 'Try Again'}
+            </button>
+
+            <button
+              onClick={() => continueWithoutPermission('complete')}
+              className="w-full py-3 text-neutral-500 text-sm font-medium hover:text-neutral-900 transition-colors"
+            >
+              Continue without notifications
             </button>
           </div>
         )}
@@ -692,6 +898,31 @@ export default function PermissionsOnboarding({ onComplete }: PermissionsOnboard
                   {cameraStatus === 'granted' ? 'Camera enabled' : 'Camera not enabled'}
                 </span>
               </div>
+
+              <div className={`flex items-center gap-3 p-4 rounded-xl text-left ${
+                notificationStatus === 'granted'
+                  ? 'bg-emerald-50 border border-emerald-100'
+                  : 'bg-amber-50 border border-amber-100'
+              }`}>
+                <div className={`w-8 h-8 rounded-full flex items-center justify-center ${
+                  notificationStatus === 'granted' ? 'bg-emerald-100' : 'bg-amber-100'
+                }`}>
+                  {notificationStatus === 'granted' ? (
+                    <svg className="w-4 h-4 text-emerald-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+                    </svg>
+                  ) : (
+                    <svg className="w-4 h-4 text-amber-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M14.857 17.082a23.848 23.848 0 005.454-1.31A8.967 8.967 0 0118 9.75v-.7V9A6 6 0 006 9v.75a8.967 8.967 0 01-2.312 6.022c1.733.64 3.56 1.085 5.455 1.31m5.714 0a24.255 24.255 0 01-5.714 0m5.714 0a3 3 0 11-5.714 0" />
+                    </svg>
+                  )}
+                </div>
+                <span className={`text-sm font-medium ${
+                  notificationStatus === 'granted' ? 'text-emerald-900' : 'text-amber-900'
+                }`}>
+                  {notificationStatus === 'granted' ? 'Notifications enabled' : 'Notifications not enabled'}
+                </span>
+              </div>
             </div>
 
             <button
@@ -701,7 +932,7 @@ export default function PermissionsOnboarding({ onComplete }: PermissionsOnboard
               Continue to TrustCircle
             </button>
 
-            {(locationStatus !== 'granted' || cameraStatus !== 'granted') && (
+            {(locationStatus !== 'granted' || cameraStatus !== 'granted' || notificationStatus !== 'granted') && (
               <p className="text-xs text-neutral-400 mt-4">
                 You can enable permissions anytime in Settings.
               </p>

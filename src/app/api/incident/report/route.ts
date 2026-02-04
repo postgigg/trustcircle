@@ -2,10 +2,25 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createIncidentReport, supabase, addToBlacklist, getZoneById } from '@/lib/supabase';
 import { encryptData } from '@/lib/crypto';
 import { requireActiveSubscription } from '@/lib/subscription-guard';
+import { sendNotificationsToZone } from '../../notifications/send/route';
+import { securityMiddleware } from '@/middleware/security';
 
 const ENCRYPTION_KEY = process.env.INCIDENT_ENCRYPTION_KEY || 'default-key-change-in-production';
 
 export async function POST(request: NextRequest) {
+  // Security check
+  const security = await securityMiddleware(request, {
+    maxRequests: 10, // Lower limit for incident reports
+    windowSeconds: 60,
+  });
+
+  if (!security.allowed) {
+    return NextResponse.json(
+      { error: security.reason || 'Access denied' },
+      { status: 403 }
+    );
+  }
+
   try {
     const deviceToken = request.headers.get('x-device-token');
 
@@ -108,10 +123,40 @@ export async function POST(request: NextRequest) {
       .eq('zone_id', zoneId)
       .eq('status', 'active');
 
+    // Send push notifications to zone residents
+    let notificationsSent = 0;
+    try {
+      const vehicleDescription = [vehicleColor, vehicleType].filter(Boolean).join(' ');
+      const alertBody = vehicleDescription
+        ? `${vehicleDescription} reported in your area`
+        : 'Suspicious activity reported in your area';
+
+      const result = await sendNotificationsToZone(
+        zoneId,
+        {
+          title: 'Alert: Suspicious Activity',
+          body: alertBody,
+          tag: `incident-${incident.id}`,
+          data: {
+            type: 'incident',
+            incidentId: incident.id,
+            url: '/alerts',
+          },
+        },
+        deviceToken || undefined // Exclude the reporter from notification
+      );
+
+      notificationsSent = result.sent;
+    } catch (notifyError) {
+      console.error('Failed to send incident notifications:', notifyError);
+      // Don't fail the request if notifications fail
+    }
+
     return NextResponse.json({
       success: true,
       incidentId: incident.id,
       alertedResidents: count || 0,
+      notificationsSent,
     });
   } catch (error) {
     console.error('Incident report error:', error);

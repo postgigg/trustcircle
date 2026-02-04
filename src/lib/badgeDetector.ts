@@ -11,7 +11,14 @@
  * - Tight color tolerance to avoid matching random environment colors
  * - Minimum pixel coverage thresholds
  * - Stable detection over multiple frames
+ *
+ * Invisible Verification Layer:
+ * - Samples center brightness each frame
+ * - Maintains ring buffer of brightness samples
+ * - Decodes 24-bit pattern (16-bit device prefix + 8-bit checksum)
  */
+
+import { decodePattern, PATTERN_CONFIG } from './patternEncoder';
 
 interface DetectionResult {
   detected: boolean;
@@ -19,6 +26,13 @@ interface DetectionResult {
   guidance: string;
   confidence: number;
   matchedZone?: string;
+  patternReady?: boolean;
+}
+
+interface PatternResult {
+  prefix: number;
+  checksum: number;
+  confidence: number;
 }
 
 interface ZoneColors {
@@ -35,6 +49,11 @@ const MIN_SECONDARY_RATIO = 0.06;     // At least 6% of pixels must match second
 const MIN_COMBINED_SCORE = 0.20;      // Combined ratio must exceed this
 const STABLE_FRAMES_REQUIRED = 8;     // Frames of stable detection before ready
 
+// Brightness sampling for invisible verification
+// Need ~4 seconds of samples at 30fps = 120 samples for full 3.6s cycle + buffer
+const BRIGHTNESS_BUFFER_SIZE = 150;
+const SAMPLES_PER_BIT = Math.ceil(BRIGHTNESS_BUFFER_SIZE / PATTERN_CONFIG.BITS_TOTAL);
+
 export class BadgeDetector {
   private canvas: HTMLCanvasElement;
   private ctx: CanvasRenderingContext2D;
@@ -45,6 +64,11 @@ export class BadgeDetector {
   private zoneColors: ZoneColors[] = [];
   private zonesLoaded = false;
   private loadingZones = false;
+
+  // Brightness sampling for invisible verification
+  private brightnessSamples: number[] = [];
+  private lastSampleTime = 0;
+  private patternExtracted: PatternResult | null = null;
 
   constructor() {
     this.canvas = document.createElement('canvas');
@@ -196,13 +220,79 @@ export class BadgeDetector {
       guidance = 'Verifying...';
     }
 
+    // Sample brightness for invisible verification when badge is detected
+    if (detected) {
+      this.sampleBrightness(imageData.data);
+    } else {
+      // Reset brightness samples when badge not detected
+      this.brightnessSamples = [];
+      this.patternExtracted = null;
+    }
+
+    // Check if we have enough samples to extract pattern
+    const patternReady = this.brightnessSamples.length >= BRIGHTNESS_BUFFER_SIZE;
+    if (patternReady && !this.patternExtracted) {
+      this.patternExtracted = decodePattern(this.brightnessSamples) || null;
+    }
+
     return {
       detected,
       ready,
       guidance,
       confidence,
       matchedZone: bestZone || undefined,
+      patternReady,
     };
+  }
+
+  /**
+   * Sample center brightness for invisible pattern detection
+   */
+  private sampleBrightness(data: Uint8ClampedArray): void {
+    // Calculate average brightness of center region
+    let totalBrightness = 0;
+    let pixelCount = 0;
+
+    // Sample every 8th pixel for speed
+    for (let i = 0; i < data.length; i += 32) {
+      const r = data[i];
+      const g = data[i + 1];
+      const b = data[i + 2];
+      // Perceived brightness formula
+      totalBrightness += 0.299 * r + 0.587 * g + 0.114 * b;
+      pixelCount++;
+    }
+
+    const avgBrightness = totalBrightness / pixelCount;
+
+    // Add to ring buffer
+    this.brightnessSamples.push(avgBrightness);
+
+    // Maintain buffer size
+    if (this.brightnessSamples.length > BRIGHTNESS_BUFFER_SIZE) {
+      this.brightnessSamples.shift();
+    }
+  }
+
+  /**
+   * Get extracted pattern for verification
+   */
+  extractPattern(): PatternResult | null {
+    if (this.brightnessSamples.length < BRIGHTNESS_BUFFER_SIZE) {
+      return null;
+    }
+
+    // Decode pattern from brightness samples
+    return decodePattern(this.brightnessSamples) || null;
+  }
+
+  /**
+   * Get current pattern readiness status
+   */
+  getPatternProgress(): { progress: number; ready: boolean } {
+    const progress = Math.min(100, Math.floor((this.brightnessSamples.length / BRIGHTNESS_BUFFER_SIZE) * 100));
+    const ready = this.brightnessSamples.length >= BRIGHTNESS_BUFFER_SIZE;
+    return { progress, ready };
   }
 
   extractColorSignature(video: HTMLVideoElement): number[] {
@@ -273,6 +363,9 @@ export class BadgeDetector {
     this.stableFrames = 0;
     this.lastMatchedZone = null;
     this.lastMatchedZoneId = null;
+    this.consecutiveNoDetection = 0;
+    this.brightnessSamples = [];
+    this.patternExtracted = null;
   }
 }
 

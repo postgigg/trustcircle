@@ -167,3 +167,56 @@ export async function checkAndRecordMovement(): Promise<boolean> {
   recordMovement(analysis.isHuman);
   return analysis.isHuman;
 }
+
+/**
+ * Get current location for movement correlation
+ */
+export function getCurrentLocation(): Promise<{ lat: number; lon: number } | null> {
+  return new Promise((resolve) => {
+    if (typeof window === 'undefined' || !('geolocation' in navigator)) {
+      resolve(null);
+      return;
+    }
+
+    navigator.geolocation.getCurrentPosition(
+      (position) => {
+        resolve({
+          lat: position.coords.latitude,
+          lon: position.coords.longitude,
+        });
+      },
+      () => {
+        // Error getting location - don't fail the movement check
+        resolve(null);
+      },
+      {
+        enableHighAccuracy: false,
+        timeout: 10000,
+        maximumAge: 60000, // Accept cached location up to 1 minute old
+      }
+    );
+  });
+}
+
+/**
+ * Check movement and record with location for correlation
+ * This is the new preferred method that enables anti-spoofing
+ */
+export async function checkAndRecordMovementWithLocation(): Promise<{
+  isHuman: boolean;
+  location: { lat: number; lon: number } | null;
+}> {
+  // Run movement sampling and location fetch in parallel
+  const [samples, location] = await Promise.all([
+    startMovementSampling(5000),
+    getCurrentLocation(),
+  ]);
+
+  const analysis = analyzeMovementPattern(samples);
+  recordMovement(analysis.isHuman);
+
+  return {
+    isHuman: analysis.isHuman,
+    location,
+  };
+}

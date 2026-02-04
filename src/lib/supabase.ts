@@ -124,13 +124,34 @@ export async function logPresence(deviceToken: string, locationHash: string, wif
   if (error) throw error;
 }
 
-export async function logMovement(deviceToken: string, date: string, detected: boolean) {
+export async function logMovement(
+  deviceToken: string,
+  date: string,
+  detected: boolean,
+  lat?: number,
+  lon?: number
+) {
+  // Compute H3 index if lat/lon provided
+  let h3Index: string | null = null;
+  if (typeof lat === 'number' && typeof lon === 'number') {
+    try {
+      const h3 = await import('h3-js');
+      h3Index = h3.latLngToCell(lat, lon, 7); // Resolution 7 for ~5km precision
+    } catch {
+      // H3 import failed, continue without index
+    }
+  }
+
   const { error } = await supabase
     .from('movement_log')
     .upsert({
       device_token: deviceToken,
       movement_date: date,
       movement_detected: detected,
+      checked_at: new Date().toISOString(),
+      lat: lat ?? null,
+      lon: lon ?? null,
+      h3_index: h3Index,
     }, { onConflict: 'device_token,movement_date' });
 
   if (error) throw error;
